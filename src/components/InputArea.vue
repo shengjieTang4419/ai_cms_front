@@ -98,11 +98,6 @@ const handleCompositionEnd = () => {
   isComposing.value = false
 }
 
-const toggleKnowledgeSearch = () => {
-  isKnowledgeSearch.value = !isKnowledgeSearch.value
-  emit('knowledge-search-toggle', isKnowledgeSearch.value)
-}
-
 const handleSend = () => {
   if (!inputValue.value.trim() || props.isLoading) return
   emit('send', inputValue.value.trim(), isKnowledgeSearch.value)

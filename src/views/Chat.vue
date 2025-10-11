@@ -54,6 +54,21 @@
           </div>
         </div>
 
+        <!-- 功能提示区域 -->
+        <div v-if="messages.length === 0" class="feature-hints">
+          <div class="hint-card">
+            <div class="hint-icon">🌤️</div>
+            <div class="hint-content">
+              <h3>天气查询</h3>
+              <p>现在支持天气查询功能！您可以询问任何城市的天气情况。</p>
+              <div class="hint-examples">
+                <span class="example-tag" @click="fillExample('北京今天天气怎么样？')">"北京今天天气怎么样？"</span>
+                <span class="example-tag" @click="fillExample('上海今天会下雨吗？')">"上海今天会下雨吗？"</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- 输入区域 -->
         <ChatInput 
           v-model="inputMessage"
@@ -120,6 +135,11 @@ const renderedMessages = computed(() => {
 })
 
 
+// 填充示例文本
+const fillExample = (text) => {
+  inputMessage.value = text
+}
+
 // 处理知识库搜索切换
 const handleKnowledgeSearchToggle = (isActive) => {
   isKnowledgeSearch.value = isActive
@@ -176,8 +196,30 @@ const handleSend = async (messageText, useKnowledgeSearch = false) => {
           }
         },
         (error) => {
-          console.error('聊天错误:', error)
-          ElMessage.error('发送消息失败，请重试')
+          console.error('知识库搜索错误:', error)
+          
+          // 根据错误类型提供不同的提示
+          let errorMessage = '知识库搜索失败，请重试'
+          if (error.message) {
+            if (error.message.includes('认证失败') || error.message.includes('401')) {
+              errorMessage = '登录已过期，请重新登录'
+              // 自动跳转到登录页
+              setTimeout(() => {
+                userStore.logout()
+                router.push('/login')
+              }, 2000)
+            } else if (error.message.includes('权限不足') || error.message.includes('403')) {
+              errorMessage = '权限不足，请联系管理员'
+            } else if (error.message.includes('超时')) {
+              errorMessage = '知识库搜索超时，请重试'
+            } else if (error.message.includes('连接被中断')) {
+              errorMessage = '连接中断，请重试'
+            } else {
+              errorMessage = `知识库搜索失败: ${error.message}`
+            }
+          }
+          
+          ElMessage.error(errorMessage)
           isLoading.value = false
         },
         () => {
@@ -199,13 +241,29 @@ const handleSend = async (messageText, useKnowledgeSearch = false) => {
           },
           (error) => {
             console.error('聊天错误:', error)
-            ElMessage.error(`发送消息失败: ${error.message || '请重试'}`)
-
-            // 如果是超时错误，提供更友好的提示
-            if (error.message && error.message.includes('超时')) {
-              ElMessage.info('知识库搜索可能需要更长时间，请稍后查看结果')
+            
+            // 根据错误类型提供不同的提示
+            let errorMessage = '发送消息失败，请重试'
+            if (error.message) {
+              if (error.message.includes('认证失败') || error.message.includes('401')) {
+                errorMessage = '登录已过期，请重新登录'
+                // 自动跳转到登录页
+                setTimeout(() => {
+                  userStore.logout()
+                  router.push('/login')
+                }, 2000)
+              } else if (error.message.includes('权限不足') || error.message.includes('403')) {
+                errorMessage = '权限不足，请联系管理员'
+              } else if (error.message.includes('超时')) {
+                errorMessage = '请求超时，请检查网络连接'
+              } else if (error.message.includes('连接被中断')) {
+                errorMessage = '连接中断，请重试'
+              } else {
+                errorMessage = `发送消息失败: ${error.message}`
+              }
             }
-
+            
+            ElMessage.error(errorMessage)
             isLoading.value = false
           },
           () => {
@@ -637,6 +695,71 @@ onUnmounted(() => {
 
 .chat-messages::-webkit-scrollbar-thumb:hover {
   background: #a8a8a8;
+}
+
+/* 功能提示区域样式 */
+.feature-hints {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+}
+
+.hint-card {
+  background: #2a2a2a;
+  border-radius: 16px;
+  padding: 24px;
+  max-width: 500px;
+  width: 100%;
+  border: 1px solid #3a3a3a;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.hint-icon {
+  font-size: 48px;
+  text-align: center;
+  margin-bottom: 16px;
+}
+
+.hint-content h3 {
+  color: #e6e6e6;
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0 0 12px 0;
+  text-align: center;
+}
+
+.hint-content p {
+  color: #b6b6b6;
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0 0 20px 0;
+  text-align: center;
+}
+
+.hint-examples {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.example-tag {
+  background: #3a3a3a;
+  color: #d6d6d6;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  border: 1px solid #4a4a4a;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.example-tag:hover {
+  background: #4a4a4a;
+  border-color: #5a5a5a;
+  transform: translateY(-1px);
 }
 
 

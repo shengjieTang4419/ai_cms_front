@@ -25,6 +25,13 @@ export class ChatService {
 
         const token = localStorage.getItem('token')
 
+        // 检查token是否存在
+        if (!token) {
+            console.error('未找到认证token')
+            onError(new Error('认证失败，请重新登录'))
+            return
+        }
+
         // 使用知识库搜索接口
         try {
             // 对查询参数进行URL编码
@@ -32,6 +39,7 @@ export class ChatService {
             const encodedSessionId = sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : ''
             const url = `/api/aiChat/rag/streamChat?query=${encodedQuery}${encodedSessionId}`
 
+            console.log('发送知识库搜索请求到:', url)
             // 使用fetch获取流式响应
             this.fetchStreamResponse(url, onMessage, onError, onComplete)
 
@@ -62,8 +70,12 @@ export class ChatService {
 
         const token = localStorage.getItem('token')
 
-        // 优先尝试真实后端，即使有模拟token
-        // 只有在真实后端失败时才使用模拟回复
+        // 检查token是否存在
+        if (!token) {
+            console.error('未找到认证token')
+            onError(new Error('认证失败，请重新登录'))
+            return
+        }
 
         // 使用真实的后端接口
         try {
@@ -72,7 +84,7 @@ export class ChatService {
             const encodedSessionId = sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : ''
             const url = `/api/aiChat/simple/streamChat?query=${encodedQuery}${encodedSessionId}`
 
-            // 先尝试使用fetch获取数据，看看后端是否真的支持流式
+            console.log('发送聊天请求到:', url)
             this.fetchStreamResponse(url, onMessage, onError, onComplete)
 
         } catch (error) {
@@ -89,21 +101,32 @@ export class ChatService {
             return
         }
 
+        let heartbeatInterval = null
+        let timeoutId = null
+
         try {
             console.log('开始fetch请求:', url)
-            // 设置超时和重试逻辑
+
+            // 设置更长的超时时间，因为AI生成可能需要更长时间
             const controller = new AbortController()
-            const timeoutId = setTimeout(() => controller.abort(), 30000) // 30秒超时
+            timeoutId = setTimeout(() => {
+                console.warn('请求超时，取消连接')
+                controller.abort()
+            }, 120000) // 2分钟超时
 
             const headers = {
                 'Accept': 'text/event-stream',
-                'Cache-Control': 'no-cache'
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive'
             }
 
             // 添加认证头
             const currentToken = localStorage.getItem('token')
             if (currentToken) {
                 headers['Authorization'] = `Bearer ${currentToken}`
+                console.log('已添加认证头:', currentToken.substring(0, 20) + '...')
+            } else {
+                console.warn('未找到认证token')
             }
 
             const response = await fetch(url, {
@@ -114,23 +137,40 @@ export class ChatService {
             clearTimeout(timeoutId)
 
             if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`)
+                const errorText = await response.text()
+                console.error('HTTP错误响应:', response.status, errorText)
+                throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`)
             }
 
             const reader = response.body.getReader()
             const decoder = new TextDecoder()
             let buffer = ''
             let lastActivity = Date.now()
-            const heartbeatInterval = setInterval(() => {
-                // 检查是否有活动，如果超过30秒没有数据，认为连接可能有问题
-                if (Date.now() - lastActivity > 30000) {
-                    console.warn('流式响应可能超时，关闭连接')
+            let hasReceivedData = false
+
+            // 设置心跳检测，但频率降低
+            heartbeatInterval = setInterval(() => {
+                const now = Date.now()
+                const timeSinceLastActivity = now - lastActivity
+
+                // 如果超过60秒没有数据，且已经收到过数据，认为连接可能有问题
+                if (timeSinceLastActivity > 60000 && hasReceivedData) {
+                    console.warn('流式响应长时间无数据，关闭连接')
                     reader.cancel()
                     clearInterval(heartbeatInterval)
-                    onError(new Error('流式响应超时'))
+                    onError(new Error('流式响应超时，请重试'))
                     return
                 }
-            }, 5000)
+
+                // 如果超过2分钟完全没有数据，也关闭连接
+                if (timeSinceLastActivity > 120000) {
+                    console.warn('流式响应完全超时，关闭连接')
+                    reader.cancel()
+                    clearInterval(heartbeatInterval)
+                    onError(new Error('连接超时，请检查网络'))
+                    return
+                }
+            }, 10000) // 每10秒检查一次
 
             try {
                 while (true) {
@@ -145,6 +185,7 @@ export class ChatService {
 
                     // 更新最后活动时间
                     lastActivity = Date.now()
+                    hasReceivedData = true
 
                     // 解码数据
                     const chunk = decoder.decode(value, { stream: true })
@@ -165,7 +206,7 @@ export class ChatService {
                                     console.log('发送内容到前端:', content)
                                     onMessage({ content })
                                 } else if (content === '[DONE]') {
-                                    console.log('流式响应完成')
+                                    console.log('收到完成信号，结束流式响应')
                                     clearInterval(heartbeatInterval)
                                     onComplete()
                                     return
@@ -184,12 +225,27 @@ export class ChatService {
             } catch (readError) {
                 clearInterval(heartbeatInterval)
                 console.error('读取流式数据时出错:', readError)
-                onError(readError)
+                if (readError.name === 'AbortError') {
+                    onError(new Error('连接被中断'))
+                } else {
+                    onError(readError)
+                }
             }
         } catch (error) {
             console.error('fetch流式请求失败:', error)
+            if (heartbeatInterval) {
+                clearInterval(heartbeatInterval)
+            }
+            if (timeoutId) {
+                clearTimeout(timeoutId)
+            }
+
             if (error.name === 'AbortError') {
                 onError(new Error('请求超时，请检查网络连接'))
+            } else if (error.message.includes('401')) {
+                onError(new Error('认证失败，请重新登录'))
+            } else if (error.message.includes('403')) {
+                onError(new Error('权限不足，请联系管理员'))
             } else {
                 onError(error)
             }
