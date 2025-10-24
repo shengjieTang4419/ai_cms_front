@@ -67,6 +67,28 @@
               </div>
             </div>
           </div>
+
+          <!-- 猜你喜欢组件 -->
+          <div class="hint-card">
+            <div class="hint-icon">💡</div>
+            <div class="hint-content">
+              <h3>猜你喜欢</h3>
+              <p v-if="loadingRecommendations">正在加载推荐内容...</p>
+              <p v-else-if="recommendations.length === 0">暂无推荐内容</p>
+              <div v-else class="hint-examples">
+                <span 
+                  v-for="(item, index) in recommendations" 
+                  :key="index"
+                  class="example-tag recommendation-tag" 
+                  @click="fillExample(item.question)"
+                  :title="item.label ? `${item.label}` : ''"
+                >
+                  <span v-if="item.label" class="tag-label">{{ item.label }}</span>
+                  <span class="tag-question">{{ item.question }}</span>
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- 输入区域 -->
@@ -88,7 +110,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { User, ArrowDown } from '@element-plus/icons-vue'
 import { useUserStore } from '../stores/user'
-import { chatService } from '../api/chat'
+import { chatService, getPersonalizedRecommendations } from '../api/chat'
 import ChatSidebar from '../components/ChatSidebar.vue'
 import ChatMessage from '../components/ChatMessage.vue'
 import ChatInput from '../components/ChatInput.vue'
@@ -107,6 +129,10 @@ const isKnowledgeSearch = ref(false)
 
 const currentSessionId = ref('')
 const historyLoaded = ref(false)
+
+// 个性化推荐数据
+const recommendations = ref([])
+const loadingRecommendations = ref(false)
 
 // 带日期分隔与“历史会话记录”提示的渲染列表
 const renderedMessages = computed(() => {
@@ -222,10 +248,26 @@ const handleSend = async (messageText, useKnowledgeSearch = false) => {
           ElMessage.error(errorMessage)
           isLoading.value = false
         },
-        () => {
+        async () => {
           // 完成
           isLoading.value = false
+          
+          // 强制刷新消息以确保Markdown正确渲染
+          await nextTick()
+          const lastMessage = messages.value[messageIndex]
+          if (lastMessage) {
+            // 创建新对象以触发响应式更新，确保Markdown完全渲染
+            const content = lastMessage.content
+            messages.value[messageIndex] = { ...lastMessage, content }
+          }
+          
+          // 再次等待DOM更新
+          await nextTick()
           scrollToBottom()
+          
+          // 重新加载会话列表，以显示新创建的会话
+          await loadSessions()
+          console.log('流式响应完成，已刷新会话列表和Markdown渲染')
         },
         currentSessionId.value
         )
@@ -266,10 +308,26 @@ const handleSend = async (messageText, useKnowledgeSearch = false) => {
             ElMessage.error(errorMessage)
             isLoading.value = false
           },
-          () => {
+          async () => {
             // 完成
             isLoading.value = false
+            
+            // 强制刷新消息以确保Markdown正确渲染
+            await nextTick()
+            const lastMessage = messages.value[messageIndex]
+            if (lastMessage) {
+              // 创建新对象以触发响应式更新，确保Markdown完全渲染
+              const content = lastMessage.content
+              messages.value[messageIndex] = { ...lastMessage, content }
+            }
+            
+            // 再次等待DOM更新
+            await nextTick()
             scrollToBottom()
+            
+            // 重新加载会话列表，以显示新创建的会话
+            await loadSessions()
+            console.log('流式响应完成，已刷新会话列表和Markdown渲染')
           },
           currentSessionId.value
         )
@@ -554,9 +612,61 @@ const deleteSession = async (sessionId) => {
   }
 }
 
+// 加载个性化推荐
+const loadRecommendations = async () => {
+  try {
+    loadingRecommendations.value = true
+    const userId = userStore.user?.id || 1 // 从用户store中获取用户ID，默认为1
+    const data = await getPersonalizedRecommendations(userId)
+    
+    // 处理返回的数据，支持 generatedQuestions 格式
+    if (data && data.generatedQuestions && Array.isArray(data.generatedQuestions)) {
+      // 处理 "标签 -> 问题" 格式的数据
+      recommendations.value = data.generatedQuestions.map(item => {
+        // 如果是字符串格式 "标签 -> 问题"，提取问题部分
+        if (typeof item === 'string' && item.includes('->')) {
+          const parts = item.split('->')
+          return {
+            label: parts[0].trim(),
+            question: parts[1].trim(),
+            fullText: item
+          }
+        }
+        return {
+          label: '',
+          question: item,
+          fullText: item
+        }
+      })
+    } else if (Array.isArray(data)) {
+      recommendations.value = data.map(item => ({
+        label: '',
+        question: item,
+        fullText: item
+      }))
+    } else if (data && data.recommendations && Array.isArray(data.recommendations)) {
+      recommendations.value = data.recommendations.map(item => ({
+        label: '',
+        question: item,
+        fullText: item
+      }))
+    } else {
+      recommendations.value = []
+    }
+    
+    console.log('成功加载个性化推荐:', recommendations.value)
+  } catch (error) {
+    console.error('加载个性化推荐失败:', error)
+    // 不显示错误消息，保持静默失败
+    recommendations.value = []
+  } finally {
+    loadingRecommendations.value = false
+  }
+}
 
 onMounted(() => {
   loadSessions()
+  loadRecommendations() // 加载推荐内容
   // 添加欢迎消息
   messages.value.push({
     role: 'ai',
@@ -704,6 +814,8 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   padding: 40px 20px;
+  gap: 20px;
+  flex-wrap: wrap;
 }
 
 .hint-card {
@@ -712,8 +824,16 @@ onUnmounted(() => {
   padding: 24px;
   max-width: 500px;
   width: 100%;
+  flex: 1;
+  min-width: 400px;
   border: 1px solid #3a3a3a;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.hint-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
 }
 
 .hint-icon {
@@ -760,6 +880,35 @@ onUnmounted(() => {
   background: #4a4a4a;
   border-color: #5a5a5a;
   transform: translateY(-1px);
+}
+
+/* 推荐标签样式 */
+.recommendation-tag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+.tag-label {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.tag-question {
+  flex: 1;
+  font-size: 13px;
+  color: #e6e6e6;
+  line-height: 1.4;
 }
 
 

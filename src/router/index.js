@@ -19,6 +19,12 @@ const routes = [
         meta: { requiresGuest: true }
     },
     {
+        path: '/profile-setup',
+        name: 'ProfileSetup',
+        component: () => import('../views/ProfileSetup.vue'),
+        meta: { requiresAuth: true }
+    },
+    {
         path: '/chat',
         name: 'Chat',
         component: () => import('../views/Chat.vue'),

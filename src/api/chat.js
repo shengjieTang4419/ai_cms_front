@@ -268,4 +268,26 @@ export class ChatService {
     }
 }
 
+// 获取个性化推荐
+export const getPersonalizedRecommendations = async (userId) => {
+    const token = localStorage.getItem('token')
+    if (!token) {
+        throw new Error('认证失败，请重新登录')
+    }
+
+    const response = await fetch(`/api/recommendations/personalized/${userId}`, {
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+        }
+    })
+
+    if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`)
+    }
+
+    return response.json()
+}
+
 export const chatService = new ChatService()

@@ -133,8 +133,15 @@ const handleRegister = async () => {
     
     const { confirmPassword, ...userData } = registerForm
     await userStore.registerUser(userData)
-    ElMessage.success('注册成功，请登录')
-    router.push('/login')
+    
+    // 注册成功后自动登录
+    await userStore.loginUser({
+      username: userData.username,
+      password: userData.password
+    })
+    
+    ElMessage.success('注册成功')
+    router.push('/profile-setup')
   } catch (error) {
     ElMessage.error(error.response?.data?.message || '注册失败')
   } finally {

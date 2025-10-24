@@ -7,7 +7,7 @@
         <InputArea 
           v-model="inputValue"
           :is-loading="isLoading"
-          :rows="4"
+          :rows="2"
           placeholder="给我发送消息"
           @send="handleSend"
           @knowledge-search-toggle="handleKnowledgeSearchToggle"

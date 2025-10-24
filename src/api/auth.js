@@ -41,3 +41,7 @@ export const register = (userData) => {
 export const getUserInfo = () => {
     return api.get('/auth/user')
 }
+
+export const submitUserProfile = (profileData) => {
+    return api.post('/user/profile', profileData)
+}
