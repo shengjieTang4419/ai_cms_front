@@ -104,27 +104,33 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { submitUserProfile } from '../api/auth'
+import { getAllOccupations } from '../api/occupation'
 
 const router = useRouter()
 
 const profileFormRef = ref()
 const loading = ref(false)
+const occupationOptions = ref([])
 
-// 职业选项（对应后端Occupation枚举）
-const occupationOptions = [
-  { code: 1, name: '程序员' },
-  { code: 2, name: '设计师' },
-  { code: 3, name: '教师' },
-  { code: 4, name: '医生' },
-  { code: 5, name: '销售' },
-  { code: 6, name: '金融' },
-  { code: 7, name: '媒体' },
-  { code: 8, name: '法律' }
-]
+// 加载职业列表
+const loadOccupations = async () => {
+  try {
+    const data = await getAllOccupations()
+    occupationOptions.value = data || []
+  } catch (error) {
+    console.error('加载职业列表失败:', error)
+    ElMessage.error('加载职业列表失败')
+  }
+}
+
+// 组件挂载时加载职业列表
+onMounted(() => {
+  loadOccupations()
+})
 
 // 爱好预设选项
 const hobbyOptions = [
