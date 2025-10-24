@@ -45,3 +45,7 @@ export const getUserInfo = () => {
 export const submitUserProfile = (profileData) => {
     return api.post('/user/profile', profileData)
 }
+
+export const getUserProfile = () => {
+    return api.get('/user/profile')
+}
