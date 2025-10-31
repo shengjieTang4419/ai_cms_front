@@ -99,6 +99,7 @@
           :is-loading="isLoading"
           @send="handleSend"
           @knowledge-search-toggle="handleKnowledgeSearchToggle"
+          @web-search-toggle="handleWebSearchToggle"
         />
       </div>
     </div>
@@ -127,6 +128,7 @@ const messagesContainer = ref()
 const sidebarCollapsed = ref(false)
 const sessions = ref([])
 const isKnowledgeSearch = ref(false)
+const isWebSearch = ref(false)
 
 const currentSessionId = ref('')
 const historyLoaded = ref(false)
@@ -176,6 +178,17 @@ const fillExample = (text) => {
 // 处理知识库搜索切换
 const handleKnowledgeSearchToggle = (isActive) => {
   isKnowledgeSearch.value = isActive
+  if (isActive) {
+    isWebSearch.value = false // 确保互斥
+  }
+}
+
+// 处理全网搜索切换
+const handleWebSearchToggle = (isActive) => {
+  isWebSearch.value = isActive
+  if (isActive) {
+    isKnowledgeSearch.value = false // 确保互斥
+  }
 }
 
 // 处理图片删除事件
@@ -206,7 +219,7 @@ const handleImageDeleted = (imageUrl) => {
 }
 
 // 发送消息
-const handleSend = async (messageText, useKnowledgeSearch = false, imageList = []) => {
+const handleSend = async (messageText, useKnowledgeSearch = false, useWebSearch = false, imageList = []) => {
   if ((!messageText && (!imageList || imageList.length === 0)) || isLoading.value) return
 
   // imageList 包含 { preview: base64, fileUrl: url } 或直接的 URL 字符串（历史记录）
@@ -245,14 +258,15 @@ const handleSend = async (messageText, useKnowledgeSearch = false, imageList = [
     const messageIndex = messages.value.length - 1
     
     try {
-      console.log('开始发送消息:', messageText, '图片数量:', imageUrls.length, '知识库搜索:', useKnowledgeSearch || isKnowledgeSearch.value)
+      console.log('开始发送消息:', messageText, '图片数量:', imageUrls.length, '知识库搜索:', useKnowledgeSearch || isKnowledgeSearch.value, '全网搜索:', useWebSearch || isWebSearch.value)
       // 若没有会话ID，则自动创建一个
       if (!currentSessionId.value) {
         createNewSession()
       }
       
-      // 根据知识库搜索状态调用不同的接口
+      // 根据搜索状态调用不同的接口
       const shouldUseKnowledgeSearch = useKnowledgeSearch || isKnowledgeSearch.value
+      const shouldUseWebSearch = useWebSearch || isWebSearch.value
 
       if (shouldUseKnowledgeSearch) {
         chatService.streamRagChat(messageText, imageUrls,
@@ -314,6 +328,7 @@ const handleSend = async (messageText, useKnowledgeSearch = false, imageList = [
           currentSessionId.value
         )
       } else {
+        // 普通聊天或全网搜索：根据shouldUseWebSearch参数传递
         chatService.streamChat(messageText, imageUrls,
           (data) => {
             // 处理流式数据
@@ -370,7 +385,8 @@ const handleSend = async (messageText, useKnowledgeSearch = false, imageList = [
             await loadSessions()
             console.log('流式响应完成，已刷新会话列表和Markdown渲染')
           },
-          currentSessionId.value
+          currentSessionId.value,
+          shouldUseWebSearch // 传递isWithEnableSearch参数
         )
       }
     } catch (error) {

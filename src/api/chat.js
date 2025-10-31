@@ -176,6 +176,7 @@ export class ChatService {
                 imageParams = imageList.map(img => `&imageUrl=${encodeURIComponent(img)}`).join('')
             }
 
+            // 注意：知识库搜索和全网搜索互斥，所以这里不传isWithEnableSearch
             const url = `/api/aiChat/rag/streamChat?query=${encodedQuery}${encodedSessionId}${imageParams}`
 
             console.log('发送知识库搜索请求到:', url)
@@ -189,7 +190,7 @@ export class ChatService {
     }
 
     // 创建SSE连接进行流式聊天
-    streamChat(message, imageList, onMessage, onError, onComplete, sessionId) {
+    streamChat(message, imageList, onMessage, onError, onComplete, sessionId, isWithEnableSearch = false) {
         // 确保this上下文正确
         if (!this || typeof this.close !== 'function') {
             console.error('ChatService实例上下文丢失')
@@ -228,9 +229,10 @@ export class ChatService {
                 imageParams = imageList.map(img => `&imageUrl=${encodeURIComponent(img)}`).join('')
             }
 
-            const url = `/api/aiChat/simple/streamChat?query=${encodedQuery}${encodedSessionId}${imageParams}`
+            const searchParam = isWithEnableSearch ? `&isWithEnableSearch=true` : ''
+            const url = `/api/aiChat/simple/streamChat?query=${encodedQuery}${encodedSessionId}${imageParams}${searchParam}`
 
-            console.log('发送聊天请求到:', url, '图片数量:', imageList ? imageList.length : 0)
+            console.log('发送聊天请求到:', url, '图片数量:', imageList ? imageList.length : 0, '全网搜索:', isWithEnableSearch)
             this.fetchStreamResponse(url, onMessage, onError, onComplete)
 
         } catch (error) {

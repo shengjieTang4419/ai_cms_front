@@ -31,11 +31,21 @@
         <el-button class="pill pill-primary" round>深度思考</el-button>
         <el-button 
           class="pill" 
-          :class="{ 'pill-active': isKnowledgeSearch }"
+          :class="{ 'pill-active': isKnowledgeSearch, 'pill-disabled': isWebSearch }"
           round
+          :disabled="isWebSearch"
           @click="toggleKnowledgeSearch"
         >
           知识库搜索
+        </el-button>
+        <el-button 
+          class="pill" 
+          :class="{ 'pill-active': isWebSearch, 'pill-disabled': isKnowledgeSearch }"
+          round
+          :disabled="isKnowledgeSearch"
+          @click="toggleWebSearch"
+        >
+          全网搜索
         </el-button>
       </div>
       <div class="right-actions">
@@ -100,12 +110,13 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['update:modelValue', 'send', 'knowledge-search-toggle', 'images-update'])
+const emit = defineEmits(['update:modelValue', 'send', 'knowledge-search-toggle', 'web-search-toggle', 'images-update'])
 
 const userStore = useUserStore()
 const inputValue = ref(props.modelValue)
 const isComposing = ref(false)
 const isKnowledgeSearch = ref(false)
+const isWebSearch = ref(false)
 // 图片数据结构: { id, preview: base64, status: 'uploading'|'success'|'failed', fileUrl: '', error: '' }
 const images = ref([])
 
@@ -148,7 +159,7 @@ const handleSend = () => {
     fileUrl: img.fileUrl  // 服务器URL，用于历史记录和删除操作
   }))
   
-  emit('send', inputValue.value.trim(), isKnowledgeSearch.value, imageData)
+  emit('send', inputValue.value.trim(), isKnowledgeSearch.value, isWebSearch.value, imageData)
   // 清空图片
   images.value = []
   emit('images-update', [])
@@ -230,8 +241,17 @@ const removeImage = async (index) => {
 }
 
 const toggleKnowledgeSearch = () => {
+  if (isWebSearch.value) return // 如果全网搜索已激活，不允许切换
   isKnowledgeSearch.value = !isKnowledgeSearch.value
+  isWebSearch.value = false // 确保互斥
   emit('knowledge-search-toggle', isKnowledgeSearch.value)
+}
+
+const toggleWebSearch = () => {
+  if (isKnowledgeSearch.value) return // 如果知识库搜索已激活，不允许切换
+  isWebSearch.value = !isWebSearch.value
+  isKnowledgeSearch.value = false // 确保互斥
+  emit('web-search-toggle', isWebSearch.value)
 }
 
 // 图片预览相关
@@ -307,6 +327,11 @@ const closePreview = () => {
   background: #2a62ff !important;
   color: #fff !important;
   border: none !important;
+}
+
+.pill-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .pill-icon { 
