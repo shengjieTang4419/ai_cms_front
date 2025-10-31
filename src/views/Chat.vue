@@ -42,7 +42,7 @@
             <div v-if="item.type === 'divider'" class="message-divider">
               <span>{{ item.text }}</span>
             </div>
-            <ChatMessage v-else :message="item.data" />
+            <ChatMessage v-else :message="item.data" @image-deleted="handleImageDeleted" />
           </template>
           
           <!-- 加载中状态 -->
@@ -130,10 +130,16 @@ const isKnowledgeSearch = ref(false)
 
 const currentSessionId = ref('')
 const historyLoaded = ref(false)
+const images = ref([])
 
 // 个性化推荐数据
 const recommendations = ref([])
 const loadingRecommendations = ref(false)
+
+// 处理图片更新
+const handleImagesUpdate = (newImages) => {
+  images.value = newImages
+}
 
 // 带日期分隔与“历史会话记录”提示的渲染列表
 const renderedMessages = computed(() => {
@@ -172,14 +178,51 @@ const handleKnowledgeSearchToggle = (isActive) => {
   isKnowledgeSearch.value = isActive
 }
 
+// 处理图片删除事件
+const handleImageDeleted = (imageUrl) => {
+  // 从所有消息中移除被删除的图片
+  messages.value.forEach(message => {
+    if (message.images && Array.isArray(message.images)) {
+      // 查找匹配的图片（可能是字符串 URL 或对象）
+      const index = message.images.findIndex(img => {
+        if (typeof img === 'string') {
+          return img === imageUrl
+        } else if (img && typeof img === 'object') {
+          return img.fileUrl === imageUrl || img.preview === imageUrl
+        }
+        return false
+      })
+      
+      if (index !== -1) {
+        message.images.splice(index, 1)
+        // 如果图片数组为空，删除images属性
+        if (message.images.length === 0) {
+          delete message.images
+        }
+      }
+    }
+  })
+  ElMessage.success('图片已从消息中移除')
+}
+
 // 发送消息
-const handleSend = async (messageText, useKnowledgeSearch = false) => {
-  if (!messageText || isLoading.value) return
+const handleSend = async (messageText, useKnowledgeSearch = false, imageList = []) => {
+  if ((!messageText && (!imageList || imageList.length === 0)) || isLoading.value) return
+
+  // imageList 包含 { preview: base64, fileUrl: url } 或直接的 URL 字符串（历史记录）
+  // 对于新发送的消息，使用包含 preview 的对象；对于历史记录，只有 URL 字符串
+  const imageData = imageList || []
+  
+  // 提取 fileUrl 列表用于后端API调用
+  const imageUrls = imageData.map(img => {
+    return typeof img === 'string' ? img : img.fileUrl
+  })
 
   const userMessage = {
     role: 'user',
-    content: messageText,
-    timestamp: new Date()
+    content: messageText || '(图片消息)',
+    timestamp: new Date(),
+    images: imageData // 保存完整数据（包含 preview 和 fileUrl）
   }
   
   messages.value.push(userMessage)
@@ -202,7 +245,7 @@ const handleSend = async (messageText, useKnowledgeSearch = false) => {
     const messageIndex = messages.value.length - 1
     
     try {
-      console.log('开始发送消息:', messageText, '知识库搜索:', useKnowledgeSearch || isKnowledgeSearch.value)
+      console.log('开始发送消息:', messageText, '图片数量:', imageUrls.length, '知识库搜索:', useKnowledgeSearch || isKnowledgeSearch.value)
       // 若没有会话ID，则自动创建一个
       if (!currentSessionId.value) {
         createNewSession()
@@ -212,69 +255,66 @@ const handleSend = async (messageText, useKnowledgeSearch = false) => {
       const shouldUseKnowledgeSearch = useKnowledgeSearch || isKnowledgeSearch.value
 
       if (shouldUseKnowledgeSearch) {
-        chatService.streamRagChat(
-
-        messageText,
-        (data) => {
-          // 处理流式数据
-          if (data && data.content && data.content.trim() !== '') {
-            messages.value[messageIndex].content += data.content
-            scrollToBottom()
-          }
-        },
-        (error) => {
-          console.error('知识库搜索错误:', error)
-          
-          // 根据错误类型提供不同的提示
-          let errorMessage = '知识库搜索失败，请重试'
-          if (error.message) {
-            if (error.message.includes('认证失败') || error.message.includes('401')) {
-              errorMessage = '登录已过期，请重新登录'
-              // 自动跳转到登录页
-              setTimeout(() => {
-                userStore.logout()
-                router.push('/login')
-              }, 2000)
-            } else if (error.message.includes('权限不足') || error.message.includes('403')) {
-              errorMessage = '权限不足，请联系管理员'
-            } else if (error.message.includes('超时')) {
-              errorMessage = '知识库搜索超时，请重试'
-            } else if (error.message.includes('连接被中断')) {
-              errorMessage = '连接中断，请重试'
-            } else {
-              errorMessage = `知识库搜索失败: ${error.message}`
+        chatService.streamRagChat(messageText, imageUrls,
+          (data) => {
+            // 处理流式数据
+            if (data && data.content && data.content.trim() !== '') {
+              messages.value[messageIndex].content += data.content
+              scrollToBottom()
             }
-          }
-          
-          ElMessage.error(errorMessage)
-          isLoading.value = false
-        },
-        async () => {
-          // 完成
-          isLoading.value = false
-          
-          // 强制刷新消息以确保Markdown正确渲染
-          await nextTick()
-          const lastMessage = messages.value[messageIndex]
-          if (lastMessage) {
-            // 创建新对象以触发响应式更新，确保Markdown完全渲染
-            const content = lastMessage.content
-            messages.value[messageIndex] = { ...lastMessage, content }
-          }
-          
-          // 再次等待DOM更新
-          await nextTick()
-          scrollToBottom()
-          
-          // 重新加载会话列表，以显示新创建的会话
-          await loadSessions()
-          console.log('流式响应完成，已刷新会话列表和Markdown渲染')
-        },
-        currentSessionId.value
+          },
+          (error) => {
+            console.error('知识库搜索错误:', error)
+            
+            // 根据错误类型提供不同的提示
+            let errorMessage = '知识库搜索失败，请重试'
+            if (error.message) {
+              if (error.message.includes('认证失败') || error.message.includes('401')) {
+                errorMessage = '登录已过期，请重新登录'
+                // 自动跳转到登录页
+                setTimeout(() => {
+                  userStore.logout()
+                  router.push('/login')
+                }, 2000)
+              } else if (error.message.includes('权限不足') || error.message.includes('403')) {
+                errorMessage = '权限不足，请联系管理员'
+              } else if (error.message.includes('超时')) {
+                errorMessage = '知识库搜索超时，请重试'
+              } else if (error.message.includes('连接被中断')) {
+                errorMessage = '连接中断，请重试'
+              } else {
+                errorMessage = `知识库搜索失败: ${error.message}`
+              }
+            }
+            
+            ElMessage.error(errorMessage)
+            isLoading.value = false
+          },
+          async () => {
+            // 完成
+            isLoading.value = false
+            
+            // 强制刷新消息以确保Markdown正确渲染
+            await nextTick()
+            const lastMessage = messages.value[messageIndex]
+            if (lastMessage) {
+              // 创建新对象以触发响应式更新，确保Markdown完全渲染
+              const content = lastMessage.content
+              messages.value[messageIndex] = { ...lastMessage, content }
+            }
+            
+            // 再次等待DOM更新
+            await nextTick()
+            scrollToBottom()
+            
+            // 重新加载会话列表，以显示新创建的会话
+            await loadSessions()
+            console.log('流式响应完成，已刷新会话列表和Markdown渲染')
+          },
+          currentSessionId.value
         )
       } else {
-        chatService.streamChat(
-          messageText,
+        chatService.streamChat(messageText, imageUrls,
           (data) => {
             // 处理流式数据
             if (data && data.content && data.content.trim() !== '') {
@@ -492,13 +532,25 @@ const selectSession = async (item) => {
       .map(r => {
         const timestamp = r.createdAt ? new Date(r.createdAt) : new Date()
 
-        return {
+        const message = {
           role: r.messageType === 'USER' ? 'user' : 'ai',
           content: r.content || '',
           timestamp,
           isRagEnhanced: r.isRagEnhanced || false,
           messageId: r.id
         }
+
+        // 如果是用户消息且有图片URL，恢复图片显示
+        // 注意：OCR结果不在这里，只恢复图片URL
+        if (message.role === 'user' && r.imageUrls && Array.isArray(r.imageUrls) && r.imageUrls.length > 0) {
+          // 将图片URL转换为前端需要的格式（字符串数组或对象数组）
+          message.images = r.imageUrls.map(url => ({
+            fileUrl: url,
+            preview: url // 历史记录中，preview也使用URL（因为没有base64数据）
+          }))
+        }
+
+        return message
       })
 
     // 验证是否至少有一条消息

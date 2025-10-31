@@ -8,9 +8,10 @@
           v-model="inputValue"
           :is-loading="isLoading"
           :rows="2"
-          placeholder="给我发送消息"
+          placeholder="给我发送消息（支持粘贴图片）"
           @send="handleSend"
           @knowledge-search-toggle="handleKnowledgeSearchToggle"
+          @images-update="handleImagesUpdate"
         />
       </div>
     </div>
@@ -22,13 +23,14 @@
           v-model="inputValue"
           :is-loading="isLoading"
           :rows="2"
-          placeholder="输入您的问题..."
+          placeholder="输入您的问题...（支持粘贴图片）"
           @send="handleSend"
           @knowledge-search-toggle="handleKnowledgeSearchToggle"
+          @images-update="handleImagesUpdate"
         />
       </div>
       <div class="input-tips">
-        <span>按 Enter 发送，Shift + Enter 换行</span>
+        <span>按 Enter 发送，Shift + Enter 换行，支持粘贴图片</span>
         <span v-if="isComposing" class="composing-indicator">正在输入中...</span>
       </div>
     </div>
@@ -54,10 +56,11 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['update:modelValue', 'send', 'knowledge-search-toggle'])
+const emit = defineEmits(['update:modelValue', 'send', 'knowledge-search-toggle', 'images-update'])
 
 const inputValue = ref(props.modelValue)
 const isComposing = ref(false)
+const images = ref([])
 
 watch(() => props.modelValue, (newVal) => {
   inputValue.value = newVal
@@ -71,10 +74,16 @@ const handleKnowledgeSearchToggle = (isActive) => {
   emit('knowledge-search-toggle', isActive)
 }
 
-const handleSend = (message, isKnowledgeSearch) => {
-  if (!message || props.isLoading) return
-  emit('send', message, isKnowledgeSearch)
+const handleImagesUpdate = (newImages) => {
+  images.value = newImages
+  emit('images-update', newImages)
+}
+
+const handleSend = (message, isKnowledgeSearch, imageList) => {
+  if ((!message && (!imageList || imageList.length === 0)) || props.isLoading) return
+  emit('send', message, isKnowledgeSearch, imageList)
   inputValue.value = ''
+  images.value = []
 }
 </script>
 

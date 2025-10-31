@@ -4,8 +4,140 @@ export class ChatService {
         this.mockTimeout = null
     }
 
+    // 上传图片（文件对象格式）- 调用 /api/images/upload
+    async uploadImageFile(file, userId = 1) {
+        const token = localStorage.getItem('token')
+        if (!token) {
+            throw new Error('认证失败，请重新登录')
+        }
+
+        try {
+            const formData = new FormData()
+            formData.append('file', file)
+            formData.append('userId', userId.toString())
+
+            const response = await fetch('/api/images/upload', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                },
+                body: formData
+            })
+
+            if (!response.ok) {
+                const errorText = await response.text()
+                throw new Error(`图片上传失败: ${response.status} ${errorText}`)
+            }
+
+            const data = await response.json()
+            if (data.success) {
+                return {
+                    success: true,
+                    fileUrl: data.fileUrl,
+                    ocrResult: data.ocr || null
+                }
+            } else {
+                throw new Error(data.message || '图片上传失败')
+            }
+        } catch (error) {
+            console.error('图片上传错误:', error)
+            throw error
+        }
+    }
+
+    // 上传图片（base64格式）
+    async uploadImage(base64Data, contentType = 'image/png') {
+        const token = localStorage.getItem('token')
+        if (!token) {
+            throw new Error('认证失败，请重新登录')
+        }
+
+        try {
+            const formData = new FormData()
+            formData.append('base64', base64Data)
+            formData.append('contentType', contentType)
+            formData.append('userId', '1')
+
+            const response = await fetch('/api/images/upload/base64', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                },
+                body: formData
+            })
+
+            if (!response.ok) {
+                const errorText = await response.text()
+                throw new Error(`图片上传失败: ${response.status} ${errorText}`)
+            }
+
+            const data = await response.json()
+            if (data.success) {
+                return data.fileUrl
+            } else {
+                throw new Error(data.message || '图片上传失败')
+            }
+        } catch (error) {
+            console.error('图片上传错误:', error)
+            throw error
+        }
+    }
+
+    // 删除图片
+    async deleteImage(fileUrl) {
+        const token = localStorage.getItem('token')
+        if (!token) {
+            throw new Error('认证失败，请重新登录')
+        }
+
+        try {
+            const url = `/api/images/delete?fileUrl=${encodeURIComponent(fileUrl)}`
+
+            const response = await fetch(url, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            })
+
+            if (!response.ok) {
+                const errorText = await response.text()
+                throw new Error(`图片删除失败: ${response.status} ${errorText}`)
+            }
+
+            const data = await response.json()
+
+            if (data.success) {
+                return true
+            } else {
+                throw new Error(data.message || '图片删除失败')
+            }
+        } catch (error) {
+            throw error
+        }
+    }
+
+    // 批量上传图片
+    async uploadImages(base64ImageList) {
+        try {
+            const uploadPromises = base64ImageList.map(base64Data => {
+                // 从base64中提取contentType
+                const match = base64Data.match(/^data:([^;]+);base64,(.+)$/)
+                const contentType = match ? match[1] : 'image/png'
+                return this.uploadImage(base64Data, contentType)
+            })
+
+            const imageUrls = await Promise.all(uploadPromises)
+            return imageUrls
+        } catch (error) {
+            console.error('批量上传图片错误:', error)
+            throw error
+        }
+    }
+
     // 创建SSE连接进行知识库搜索流式聊天
-    streamRagChat(message, onMessage, onError, onComplete, sessionId) {
+    streamRagChat(message, imageList, onMessage, onError, onComplete, sessionId) {
         // 确保this上下文正确
         if (!this || typeof this.close !== 'function') {
             console.error('ChatService实例上下文丢失')
@@ -37,7 +169,14 @@ export class ChatService {
             // 对查询参数进行URL编码
             const encodedQuery = encodeURIComponent(message)
             const encodedSessionId = sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : ''
-            const url = `/api/aiChat/rag/streamChat?query=${encodedQuery}${encodedSessionId}`
+
+            // 添加图片参数（现在传递URL而不是base64）
+            let imageParams = ''
+            if (imageList && imageList.length > 0) {
+                imageParams = imageList.map(img => `&imageUrl=${encodeURIComponent(img)}`).join('')
+            }
+
+            const url = `/api/aiChat/rag/streamChat?query=${encodedQuery}${encodedSessionId}${imageParams}`
 
             console.log('发送知识库搜索请求到:', url)
             // 使用fetch获取流式响应
@@ -50,7 +189,7 @@ export class ChatService {
     }
 
     // 创建SSE连接进行流式聊天
-    streamChat(message, onMessage, onError, onComplete, sessionId) {
+    streamChat(message, imageList, onMessage, onError, onComplete, sessionId) {
         // 确保this上下文正确
         if (!this || typeof this.close !== 'function') {
             console.error('ChatService实例上下文丢失')
@@ -82,9 +221,16 @@ export class ChatService {
             // 对查询参数进行URL编码
             const encodedQuery = encodeURIComponent(message)
             const encodedSessionId = sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : ''
-            const url = `/api/aiChat/simple/streamChat?query=${encodedQuery}${encodedSessionId}`
 
-            console.log('发送聊天请求到:', url)
+            // 添加图片参数（现在传递URL而不是base64）
+            let imageParams = ''
+            if (imageList && imageList.length > 0) {
+                imageParams = imageList.map(img => `&imageUrl=${encodeURIComponent(img)}`).join('')
+            }
+
+            const url = `/api/aiChat/simple/streamChat?query=${encodedQuery}${encodedSessionId}${imageParams}`
+
+            console.log('发送聊天请求到:', url, '图片数量:', imageList ? imageList.length : 0)
             this.fetchStreamResponse(url, onMessage, onError, onComplete)
 
         } catch (error) {
