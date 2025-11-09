@@ -28,7 +28,14 @@
     </div>
     <div class="input-footer">
       <div class="left-actions">
-        <el-button class="pill pill-primary" round>深度思考</el-button>
+        <el-button 
+          class="pill" 
+          :class="{ 'pill-active': isDeepThinking }"
+          round
+          @click="toggleDeepThinking"
+        >
+          深度思考
+        </el-button>
         <el-button 
           class="pill" 
           :class="{ 'pill-active': isKnowledgeSearch, 'pill-disabled': isWebSearch }"
@@ -110,11 +117,12 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['update:modelValue', 'send', 'knowledge-search-toggle', 'web-search-toggle', 'images-update'])
+const emit = defineEmits(['update:modelValue', 'send', 'knowledge-search-toggle', 'web-search-toggle', 'deep-thinking-toggle', 'images-update'])
 
 const userStore = useUserStore()
 const inputValue = ref(props.modelValue)
 const isComposing = ref(false)
+const isDeepThinking = ref(false)
 const isKnowledgeSearch = ref(false)
 const isWebSearch = ref(false)
 // 图片数据结构: { id, preview: base64, status: 'uploading'|'success'|'failed', fileUrl: '', error: '' }
@@ -238,6 +246,11 @@ const removeImage = async (index) => {
   // 从列表中移除
   images.value.splice(index, 1)
   emit('images-update', images.value)
+}
+
+const toggleDeepThinking = () => {
+  isDeepThinking.value = !isDeepThinking.value
+  emit('deep-thinking-toggle', isDeepThinking.value)
 }
 
 const toggleKnowledgeSearch = () => {

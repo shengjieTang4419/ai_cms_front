@@ -137,7 +137,7 @@ export class ChatService {
     }
 
     // 创建SSE连接进行知识库搜索流式聊天
-    streamRagChat(message, imageList, onMessage, onError, onComplete, sessionId) {
+    streamRagChat(message, imageList, onMessage, onError, onComplete, sessionId, isWithEnableSearch = false, isDeepThinking = false, location = null) {
         // 确保this上下文正确
         if (!this || typeof this.close !== 'function') {
             console.error('ChatService实例上下文丢失')
@@ -177,9 +177,14 @@ export class ChatService {
             }
 
             // 注意：知识库搜索和全网搜索互斥，所以这里不传isWithEnableSearch
-            const url = `/api/aiChat/rag/streamChat?query=${encodedQuery}${encodedSessionId}${imageParams}`
+            const thinkingParam = isDeepThinking ? `&isDeepThinking=true` : ''
+            // 添加location参数（如果提供）
+            const locationParam = location && location.longitude && location.latitude 
+                ? `&longitude=${encodeURIComponent(location.longitude)}&latitude=${encodeURIComponent(location.latitude)}` 
+                : ''
+            const url = `/api/aiChat/rag/streamChat?query=${encodedQuery}${encodedSessionId}${imageParams}${thinkingParam}${locationParam}`
 
-            console.log('发送知识库搜索请求到:', url)
+            console.log('发送知识库搜索请求到:', url, '深度思考:', isDeepThinking)
             // 使用fetch获取流式响应
             this.fetchStreamResponse(url, onMessage, onError, onComplete)
 
@@ -190,7 +195,7 @@ export class ChatService {
     }
 
     // 创建SSE连接进行流式聊天
-    streamChat(message, imageList, onMessage, onError, onComplete, sessionId, isWithEnableSearch = false) {
+    streamChat(message, imageList, onMessage, onError, onComplete, sessionId, isWithEnableSearch = false, isDeepThinking = false, location = null) {
         // 确保this上下文正确
         if (!this || typeof this.close !== 'function') {
             console.error('ChatService实例上下文丢失')
@@ -230,9 +235,14 @@ export class ChatService {
             }
 
             const searchParam = isWithEnableSearch ? `&isWithEnableSearch=true` : ''
-            const url = `/api/aiChat/simple/streamChat?query=${encodedQuery}${encodedSessionId}${imageParams}${searchParam}`
+            const thinkingParam = isDeepThinking ? `&isDeepThinking=true` : ''
+            // 添加location参数（如果提供）
+            const locationParam = location && location.longitude && location.latitude 
+                ? `&longitude=${encodeURIComponent(location.longitude)}&latitude=${encodeURIComponent(location.latitude)}` 
+                : ''
+            const url = `/api/aiChat/simple/streamChat?query=${encodedQuery}${encodedSessionId}${imageParams}${searchParam}${thinkingParam}${locationParam}`
 
-            console.log('发送聊天请求到:', url, '图片数量:', imageList ? imageList.length : 0, '全网搜索:', isWithEnableSearch)
+            console.log('发送聊天请求到:', url, '图片数量:', imageList ? imageList.length : 0, '全网搜索:', isWithEnableSearch, '深度思考:', isDeepThinking)
             this.fetchStreamResponse(url, onMessage, onError, onComplete)
 
         } catch (error) {

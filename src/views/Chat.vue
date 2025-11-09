@@ -69,6 +69,25 @@
             </div>
           </div>
 
+          <!-- 路线规划组件 -->
+          <div class="hint-card">
+            <div class="hint-icon">🗺️</div>
+            <div class="hint-content">
+              <h3>路线规划</h3>
+              <p>支持多种出行方式的路线规划！</p>
+              <div class="route-types">
+                <span class="route-type-tag">🚗 驾车</span>
+                <span class="route-type-tag">🚶 步行</span>
+                <span class="route-type-tag">🚴 骑行</span>
+              </div>
+              <div class="hint-examples">
+                <span class="example-tag" @click="fillExample('我现在开车去上海南站怎么走？')">"我现在开车去上海南站怎么走？"</span>
+                <span class="example-tag" @click="fillExample('从上海外滩步行到东方明珠塔怎么走？')">"从上海外滩步行到东方明珠塔怎么走？"</span>
+                <span class="example-tag" @click="fillExample('我现在骑行去上海浦江郊野公园怎么走？')">"我现在骑行去上海浦江郊野公园怎么走？"</span>
+              </div>
+            </div>
+          </div>
+
           <!-- 猜你喜欢组件 -->
           <div class="hint-card">
             <div class="hint-icon">💡</div>
@@ -100,6 +119,7 @@
           @send="handleSend"
           @knowledge-search-toggle="handleKnowledgeSearchToggle"
           @web-search-toggle="handleWebSearchToggle"
+          @deep-thinking-toggle="handleDeepThinkingToggle"
         />
       </div>
     </div>
@@ -109,10 +129,11 @@
 <script setup>
 import { ref, nextTick, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox, ElLoading } from 'element-plus'
 import { User, ArrowDown } from '@element-plus/icons-vue'
 import { useUserStore } from '../stores/user'
 import { chatService, getPersonalizedRecommendations } from '../api/chat'
+import { getCurrentLocationWithAddress, isLocationRelatedQuery } from '../api/location'
 import ChatSidebar from '../components/ChatSidebar.vue'
 import ChatMessage from '../components/ChatMessage.vue'
 import ChatInput from '../components/ChatInput.vue'
@@ -129,6 +150,7 @@ const sidebarCollapsed = ref(false)
 const sessions = ref([])
 const isKnowledgeSearch = ref(false)
 const isWebSearch = ref(false)
+const isDeepThinking = ref(false)
 
 const currentSessionId = ref('')
 const historyLoaded = ref(false)
@@ -191,6 +213,11 @@ const handleWebSearchToggle = (isActive) => {
   }
 }
 
+// 处理深度思考切换
+const handleDeepThinkingToggle = (isActive) => {
+  isDeepThinking.value = isActive
+}
+
 // 处理图片删除事件
 const handleImageDeleted = (imageUrl) => {
   // 从所有消息中移除被删除的图片
@@ -231,11 +258,147 @@ const handleSend = async (messageText, useKnowledgeSearch = false, useWebSearch 
     return typeof img === 'string' ? img : img.fileUrl
   })
 
+  // 检测是否包含地理位置相关咨询，如果是则自动触发定位
+  let locationInfo = null
+  let enhancedMessageText = messageText || ''
+  
+  // 检测路线规划问题（需要当前位置的情况）
+  const routeKeywords = ['怎么走', '怎么去', '路线', '导航', '路径']
+  const hasRouteIntent = routeKeywords.some(keyword => messageText.includes(keyword))
+  
+  // 检测是否明确包含两个地址（出发地和目的地）
+  // 匹配模式：从...到、从...去、从...走、从...往、从...前往
+  const explicitRoutePattern = /从[\s\S]{1,50}?(?:到|去|走|往|前往)[\s\S]{1,50}/
+  const hasExplicitRoute = explicitRoutePattern.test(messageText)
+  
+  // 检测是否只提到了目的地（没有明确提到出发地）
+  // 只有同时满足以下条件才触发定位：
+  // 1. 包含路线规划关键词
+  // 2. 没有明确的"从A到B"模式
+  // 3. 没有明确提到"出发"、"起点"等词
+  const hasDestinationOnly = hasRouteIntent && !hasExplicitRoute && !messageText.match(/出发|起点|起始|起点位置/)
+  
+  // 只有当明确需要当前位置时才触发定位
+  // 情况1：询问位置相关的问题（我在哪里等）- 这些不包含路线规划关键词
+  // 情况2：路线规划问题，但只提到目的地，没有提到出发地（如"去东方明珠怎么走"）
+  const shouldGetLocation = isLocationRelatedQuery(messageText) || hasDestinationOnly
+  
+  console.log('定位检测:', {
+    messageText,
+    hasRouteIntent,
+    hasExplicitRoute,
+    hasDestinationOnly,
+    shouldGetLocation
+  })
+  
+  if (messageText && shouldGetLocation) {
+    let loadingInstance = null
+    try {
+      // 显示定位加载提示
+      loadingInstance = ElLoading.service({
+        lock: false,
+        text: '正在获取您的位置信息...',
+        background: 'rgba(0, 0, 0, 0.7)'
+      })
+      
+      // 如果是路线规划问题，只需要经纬度，不需要详细地址
+      const skipAddress = hasDestinationOnly
+      
+      // 执行高精度定位（路线规划时跳过地址获取）
+      const locationResult = await getCurrentLocationWithAddress({}, skipAddress)
+      
+      // 关闭加载提示
+      if (loadingInstance) {
+        loadingInstance.close()
+        loadingInstance = null
+      }
+      
+      if (locationResult && locationResult.success) {
+        locationInfo = {
+          longitude: locationResult.longitude,
+          latitude: locationResult.latitude,
+          address: locationResult.address,
+          addressComponent: locationResult.addressComponent
+        }
+        
+        // 构建坐标字符串
+        const coordStr = `${locationResult.longitude},${locationResult.latitude}`
+        
+        if (hasDestinationOnly) {
+          // 如果是路线规划问题，坐标信息将通过location参数传递，不放在消息内容中
+          // enhancedMessageText 保持为原始消息，坐标信息存储在 locationInfo 中
+          enhancedMessageText = messageText
+        } else {
+          // 将位置信息附加到消息中，供AI使用
+          const addressStr = locationResult.address || 
+            `${locationResult.addressComponent?.province || ''}${locationResult.addressComponent?.city || ''}${locationResult.addressComponent?.district || ''}${locationResult.addressComponent?.street || ''}`
+          enhancedMessageText = `${messageText}\n\n[我的当前位置信息：${addressStr}（经度：${locationResult.longitude}，纬度：${locationResult.latitude}）]`
+        }
+        
+        ElMessage.success('位置信息获取成功')
+      }
+    } catch (error) {
+      // 确保关闭加载提示
+      if (loadingInstance) {
+        loadingInstance.close()
+      }
+      
+      console.error('定位失败:', error)
+      
+      // 提供详细的错误提示
+      let errorMsg = '定位失败'
+      let showDetailedGuide = false
+      
+      if (error.message) {
+        if (error.message.includes('定位权限') || error.message.includes('PERMISSION_DENIED')) {
+          errorMsg = '定位失败：请允许浏览器访问您的位置信息'
+          showDetailedGuide = true
+        } else if (error.message.includes('超时') || error.message.includes('TIMEOUT')) {
+          errorMsg = '定位超时：请检查网络连接或稍后重试'
+        } else if (error.message.includes('不可用') || error.message.includes('UNAVAILABLE')) {
+          errorMsg = '定位服务不可用：您的设备可能不支持定位功能'
+        } else {
+          errorMsg = `定位失败：${error.message}`
+        }
+      }
+      
+      // 显示错误提示
+      ElMessage.warning(errorMsg)
+      
+      // 如果是权限问题，显示详细设置指南
+      if (showDetailedGuide) {
+        setTimeout(() => {
+          ElMessageBox.alert(
+            'Chrome浏览器定位权限设置方法：\n\n' +
+            '1. 点击地址栏左侧的锁图标（或信息图标）\n' +
+            '2. 选择"网站设置"或"权限"\n' +
+            '3. 找到"位置"选项，设置为"允许"\n' +
+            '4. 刷新页面后重试\n\n' +
+            '或者：\n' +
+            '1. 点击浏览器右上角三个点菜单\n' +
+            '2. 选择"设置" > "隐私和安全" > "网站设置"\n' +
+            '3. 找到"位置"权限，设置为"允许"\n' +
+            '4. 刷新页面后重试',
+            '定位权限设置指南',
+            {
+              confirmButtonText: '知道了',
+              type: 'info'
+            }
+          )
+        }, 500)
+      }
+      
+      // 定位失败不影响消息发送，继续正常流程
+    }
+  }
+
+  // 用户消息显示时只显示原始文本，不显示坐标信息
   const userMessage = {
     role: 'user',
-    content: messageText || '(图片消息)',
+    content: messageText || '(图片消息)', // 只显示原始消息，不显示坐标信息
     timestamp: new Date(),
-    images: imageData // 保存完整数据（包含 preview 和 fileUrl）
+    images: imageData, // 保存完整数据（包含 preview 和 fileUrl）
+    locationInfo: locationInfo // 保存位置信息
   }
   
   messages.value.push(userMessage)
@@ -258,7 +421,7 @@ const handleSend = async (messageText, useKnowledgeSearch = false, useWebSearch 
     const messageIndex = messages.value.length - 1
     
     try {
-      console.log('开始发送消息:', messageText, '图片数量:', imageUrls.length, '知识库搜索:', useKnowledgeSearch || isKnowledgeSearch.value, '全网搜索:', useWebSearch || isWebSearch.value)
+      console.log('开始发送消息:', enhancedMessageText, '图片数量:', imageUrls.length, '知识库搜索:', useKnowledgeSearch || isKnowledgeSearch.value, '全网搜索:', useWebSearch || isWebSearch.value)
       // 若没有会话ID，则自动创建一个
       if (!currentSessionId.value) {
         createNewSession()
@@ -269,7 +432,7 @@ const handleSend = async (messageText, useKnowledgeSearch = false, useWebSearch 
       const shouldUseWebSearch = useWebSearch || isWebSearch.value
 
       if (shouldUseKnowledgeSearch) {
-        chatService.streamRagChat(messageText, imageUrls,
+        chatService.streamRagChat(enhancedMessageText, imageUrls,
           (data) => {
             // 处理流式数据
             if (data && data.content && data.content.trim() !== '') {
@@ -325,11 +488,14 @@ const handleSend = async (messageText, useKnowledgeSearch = false, useWebSearch 
             await loadSessions()
             console.log('流式响应完成，已刷新会话列表和Markdown渲染')
           },
-          currentSessionId.value
+          currentSessionId.value,
+          shouldUseWebSearch,
+          isDeepThinking.value,
+          locationInfo // 传递location信息
         )
       } else {
         // 普通聊天或全网搜索：根据shouldUseWebSearch参数传递
-        chatService.streamChat(messageText, imageUrls,
+        chatService.streamChat(enhancedMessageText, imageUrls,
           (data) => {
             // 处理流式数据
             if (data && data.content && data.content.trim() !== '') {
@@ -386,7 +552,9 @@ const handleSend = async (messageText, useKnowledgeSearch = false, useWebSearch 
             console.log('流式响应完成，已刷新会话列表和Markdown渲染')
           },
           currentSessionId.value,
-          shouldUseWebSearch // 传递isWithEnableSearch参数
+          shouldUseWebSearch, // 传递isWithEnableSearch参数
+          isDeepThinking.value, // 传递isDeepThinking参数
+          locationInfo // 传递location信息
         )
       }
     } catch (error) {
@@ -882,24 +1050,25 @@ onUnmounted(() => {
 .feature-hints {
   flex: 1;
   display: flex;
-  align-items: center;
+  align-items: stretch;
   justify-content: center;
   padding: 40px 20px;
   gap: 20px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .hint-card {
   background: #2a2a2a;
   border-radius: 16px;
-  padding: 24px;
-  max-width: 500px;
-  width: 100%;
+  padding: 20px;
   flex: 1;
-  min-width: 400px;
+  min-width: 0;
+  max-width: 380px;
   border: 1px solid #3a3a3a;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
+  display: flex;
+  flex-direction: column;
 }
 
 .hint-card:hover {
@@ -908,49 +1077,79 @@ onUnmounted(() => {
 }
 
 .hint-icon {
-  font-size: 48px;
+  font-size: 40px;
   text-align: center;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
+}
+
+.hint-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 .hint-content h3 {
   color: #e6e6e6;
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 600;
-  margin: 0 0 12px 0;
+  margin: 0 0 10px 0;
   text-align: center;
 }
 
 .hint-content p {
   color: #b6b6b6;
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.5;
-  margin: 0 0 20px 0;
+  margin: 0 0 12px 0;
   text-align: center;
 }
 
 .hint-examples {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
+  margin-top: auto;
 }
 
 .example-tag {
   background: #3a3a3a;
   color: #d6d6d6;
-  padding: 8px 12px;
-  border-radius: 8px;
-  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
   border: 1px solid #4a4a4a;
   transition: all 0.2s ease;
   cursor: pointer;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .example-tag:hover {
   background: #4a4a4a;
   border-color: #5a5a5a;
   transform: translateY(-1px);
+}
+
+/* 路线类型标签样式 */
+.route-types {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.route-type-tag {
+  background: #3a3a3a;
+  color: #e6e6e6;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid #4a4a4a;
 }
 
 /* 推荐标签样式 */
@@ -977,9 +1176,24 @@ onUnmounted(() => {
 
 .tag-question {
   flex: 1;
-  font-size: 13px;
+  font-size: 12px;
   color: #e6e6e6;
   line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 响应式设计 - 小屏幕时换行 */
+@media (max-width: 1200px) {
+  .feature-hints {
+    flex-wrap: wrap;
+  }
+  
+  .hint-card {
+    max-width: 500px;
+    min-width: 300px;
+  }
 }
 
 

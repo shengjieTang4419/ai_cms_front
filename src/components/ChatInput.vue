@@ -11,6 +11,7 @@
           placeholder="给我发送消息（支持粘贴图片）"
           @send="handleSend"
           @knowledge-search-toggle="handleKnowledgeSearchToggle"
+          @deep-thinking-toggle="handleDeepThinkingToggle"
           @images-update="handleImagesUpdate"
         />
       </div>
@@ -26,6 +27,7 @@
           placeholder="输入您的问题...（支持粘贴图片）"
           @send="handleSend"
           @knowledge-search-toggle="handleKnowledgeSearchToggle"
+          @deep-thinking-toggle="handleDeepThinkingToggle"
           @images-update="handleImagesUpdate"
         />
       </div>
@@ -56,7 +58,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['update:modelValue', 'send', 'knowledge-search-toggle', 'images-update'])
+const emit = defineEmits(['update:modelValue', 'send', 'knowledge-search-toggle', 'deep-thinking-toggle', 'images-update'])
 
 const inputValue = ref(props.modelValue)
 const isComposing = ref(false)
@@ -69,6 +71,10 @@ watch(() => props.modelValue, (newVal) => {
 watch(inputValue, (newVal) => {
   emit('update:modelValue', newVal)
 })
+
+const handleDeepThinkingToggle = (isActive) => {
+  emit('deep-thinking-toggle', isActive)
+}
 
 const handleKnowledgeSearchToggle = (isActive) => {
   emit('knowledge-search-toggle', isActive)
