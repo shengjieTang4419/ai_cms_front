@@ -85,9 +85,9 @@ const handleImagesUpdate = (newImages) => {
   emit('images-update', newImages)
 }
 
-const handleSend = (message, isKnowledgeSearch, imageList) => {
+const handleSend = (message, isKnowledgeSearch, isWebSearch, imageList) => {
   if ((!message && (!imageList || imageList.length === 0)) || props.isLoading) return
-  emit('send', message, isKnowledgeSearch, imageList)
+  emit('send', message, isKnowledgeSearch, isWebSearch, imageList)
   inputValue.value = ''
   images.value = []
 }
