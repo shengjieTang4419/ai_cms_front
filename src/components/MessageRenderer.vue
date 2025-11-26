@@ -17,7 +17,7 @@ const props = defineProps({
 
 // 配置marked库
 marked.setOptions({
-  breaks: false,
+  breaks: true,
   gfm: true,
   pedantic: false,
   smartLists: true,
@@ -29,8 +29,13 @@ const formattedContent = computed(() => {
   
   try {
     // 处理转义字符，将\n转换为真正的换行符
-    const processedContent = props.content.replace(/\\n/g, '\n')
-    const result = marked(processedContent)    
+    let processedContent = props.content.replace(/\\n/g, '\n')
+    
+    // 智能修复 Markdown 标题格式：在 # 后面如果没有空格，自动添加
+    // 修复: ###标题 → ### 标题
+    processedContent = processedContent.replace(/^(#{1,6})([^\s#])/gm, '$1 $2')
+    
+    const result = marked(processedContent)
     return result
   } catch (error) {
     console.error('Markdown渲染错误:', error)
@@ -48,7 +53,7 @@ const formattedContent = computed(() => {
 <style>
 /* 全局Markdown样式 - 不使用scoped以确保能正确应用到动态生成的HTML */
 .message-text {
-  color: #e6e6e6;
+  color: var(--text-primary);
   line-height: 1.6;
 }
 
@@ -58,92 +63,94 @@ const formattedContent = computed(() => {
 .message-text h4,
 .message-text h5,
 .message-text h6 {
-  color: #ffffff;
-  margin: 16px 0 8px 0;
+  color: var(--text-white);
+  margin: var(--spacing-lg) 0 var(--spacing-sm) 0;
   font-weight: 600;
 }
 
 .message-text p {
-  margin: 8px 0;
+  margin: var(--spacing-sm) 0;
 }
 
 .message-text ul,
 .message-text ol {
-  margin: 8px 0;
-  padding-left: 24px;
+  margin: var(--spacing-sm) 0;
+  padding-left: var(--spacing-2xl);
 }
 
 .message-text li {
-  margin: 4px 0;
+  margin: var(--spacing-xs) 0;
 }
 
 .message-text table {
   border-collapse: collapse;
   width: 100%;
-  margin: 12px 0;
-  background: #2a2a2a;
+  margin: var(--spacing-md) 0;
+  background: var(--bg-secondary);
 }
 
 .message-text th,
 .message-text td {
-  border: 1px solid #444;
-  padding: 12px;
+  border: 1px solid var(--border-table);
+  padding: var(--spacing-md);
   text-align: left;
 }
 
 .message-text th {
-  background: #3a3a3a;
+  background: var(--bg-tertiary);
   font-weight: 600;
-  color: #ffffff;
+  color: var(--text-white);
 }
 
 .message-text td {
-  background: #2a2a2a;
+  background: var(--bg-secondary);
 }
 
 .message-text code {
-  background: #3a3a3a;
-  color: #ff6b6b;
+  background: var(--bg-tertiary);
+  color: var(--color-code);
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--spacing-xs);
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
   font-size: 0.9em;
 }
 
 .message-text pre {
-  background: #1a1a1a;
-  border: 1px solid #333;
-  border-radius: 8px;
-  padding: 16px;
+  background: var(--bg-dark);
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-lg);
   overflow-x: auto;
-  margin: 12px 0;
+  margin: var(--spacing-md) 0;
 }
 
 .message-text pre code {
   background: none;
-  color: #e6e6e6;
+  color: var(--text-primary);
   padding: 0;
 }
 
 .message-text blockquote {
-  border-left: 4px solid #4b6bff;
+  border-left: 4px solid var(--border-active);
   background: rgba(75, 107, 255, 0.1);
-  margin: 12px 0;
-  padding: 8px 16px;
-  border-radius: 0 4px 4px 0;
+  margin: var(--spacing-md) 0;
+  padding: var(--spacing-sm) var(--spacing-lg);
+  border-radius: 0 var(--spacing-xs) var(--spacing-xs) 0;
 }
 
 .message-text a {
-  color: #4b6bff;
+  color: var(--color-primary);
   text-decoration: none;
+  transition: var(--transition-base);
 }
 
 .message-text a:hover {
   text-decoration: underline;
+  color: var(--color-primary-light);
 }
 
 .message-text strong {
-  color: #ffffff;
+  color: var(--text-white);
   font-weight: 600;
 }
 
@@ -155,7 +162,7 @@ const formattedContent = computed(() => {
 .message-text hr {
   border: none;
   height: 1px;
-  background: #444;
-  margin: 16px 0;
+  background: var(--border-divider);
+  margin: var(--spacing-lg) 0;
 }
 </style>

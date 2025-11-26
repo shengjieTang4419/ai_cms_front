@@ -64,18 +64,18 @@ const handlePreview = () => {
 .image-thumbnail {
   position: relative;
   display: inline-block;
-  margin-right: 8px;
-  margin-bottom: 8px;
+  margin-right: var(--spacing-sm);
+  margin-bottom: var(--spacing-sm);
 }
 
 .thumbnail-image {
   width: 80px;
   height: 80px;
   object-fit: cover;
-  border-radius: 8px;
-  border: 1px solid #4a4a4a;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-tertiary);
   cursor: pointer;
-  transition: transform 0.2s;
+  transition: transform var(--transition-base);
 }
 
 .thumbnail-image:hover {
@@ -88,9 +88,9 @@ const handlePreview = () => {
   right: -8px;
   width: 24px;
   height: 24px;
-  border-radius: 50%;
-  background: #ff4444;
-  color: white;
+  border-radius: var(--radius-full);
+  background: var(--color-danger);
+  color: var(--text-white);
   border: none;
   cursor: pointer;
   font-size: 18px;
@@ -99,34 +99,35 @@ const handlePreview = () => {
   align-items: center;
   justify-content: center;
   line-height: 1;
-  transition: background 0.2s;
+  transition: background var(--transition-base);
   z-index: 10;
 }
 
 .remove-btn:hover {
   background: #cc0000;
+  opacity: var(--opacity-hover);
 }
 
 /* Loading状态 */
 .thumbnail-loading {
   width: 80px;
   height: 80px;
-  border-radius: 8px;
-  border: 2px dashed #4a4a4a;
-  background: #2a2a2a;
+  border-radius: var(--radius-sm);
+  border: 2px dashed var(--border-tertiary);
+  background: var(--bg-secondary);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--spacing-sm);
 }
 
 .loading-spinner {
   width: 24px;
   height: 24px;
-  border: 3px solid #4a4a4a;
-  border-top-color: #2a62ff;
-  border-radius: 50%;
+  border: 3px solid var(--border-tertiary);
+  border-top-color: var(--color-primary);
+  border-radius: var(--radius-full);
   animation: spin 1s linear infinite;
 }
 
@@ -138,7 +139,7 @@ const handlePreview = () => {
 
 .loading-text {
   font-size: 11px;
-  color: #999;
+  color: var(--text-muted);
 }
 
 /* 成功状态 */
@@ -152,24 +153,24 @@ const handlePreview = () => {
   right: 4px;
   width: 20px;
   height: 20px;
-  border-radius: 50%;
-  background: #52c41a;
-  color: white;
+  border-radius: var(--radius-full);
+  background: var(--color-success);
+  color: var(--text-white);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 12px;
   font-weight: bold;
-  border: 2px solid #2a2a2a;
+  border: 2px solid var(--bg-secondary);
 }
 
 /* 失败状态 */
 .thumbnail-failed {
   width: 80px;
   height: 80px;
-  border-radius: 8px;
-  border: 2px solid #ff4444;
-  background: #3a2a2a;
+  border-radius: var(--radius-sm);
+  border: 2px solid var(--color-danger);
+  background: var(--bg-tertiary);
   position: relative;
   display: flex;
   align-items: center;
@@ -180,17 +181,17 @@ const handlePreview = () => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: var(--spacing-xs);
 }
 
 .failed-icon {
   font-size: 24px;
-  color: #ff4444;
+  color: var(--color-danger);
 }
 
 .failed-text {
   font-size: 11px;
-  color: #ff6666;
+  color: var(--color-danger);
 }
 
 /* 预览状态 */

@@ -132,7 +132,9 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, ElLoading } from 'element-plus'
 import { User, ArrowDown } from '@element-plus/icons-vue'
 import { useUserStore } from '../stores/user'
-import { chatService, getPersonalizedRecommendations } from '../api/chat'
+import { useLocationStore } from '../stores/location'
+import { chatService } from '../api/chat'
+import { getPersonalizedRecommendations } from '../api/recommendation'
 import { getCurrentLocationWithAddress, isLocationRelatedQuery } from '../api/location'
 import ChatSidebar from '../components/ChatSidebar.vue'
 import ChatMessage from '../components/ChatMessage.vue'
@@ -140,12 +142,17 @@ import ChatInput from '../components/ChatInput.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
+const locationStore = useLocationStore()
 
 
 const messages = ref([])
 const inputMessage = ref('')
 const isLoading = ref(false)
 const messagesContainer = ref()
+
+// Session 级别的位置缓存
+// 每个 session 开启时获取一次，多轮对话复用
+const sessionLocation = ref(null)
 const sidebarCollapsed = ref(false)
 const sessions = ref([])
 const isKnowledgeSearch = ref(false)
@@ -258,137 +265,111 @@ const handleSend = async (messageText, useKnowledgeSearch = false, useWebSearch 
     return typeof img === 'string' ? img : img.fileUrl
   })
 
-  // 检测是否包含地理位置相关咨询，如果是则自动触发定位
+  // Session 级别的位置信息缓存
+  // 策略：每个 session 首次需要时获取一次，之后复用
   let locationInfo = null
   let enhancedMessageText = messageText || ''
   
-  // 检测路线规划问题（需要当前位置的情况）
-  const routeKeywords = ['怎么走', '怎么去', '路线', '导航', '路径']
-  const hasRouteIntent = routeKeywords.some(keyword => messageText.includes(keyword))
+  // 检测用户是否明确要求使用当前位置
+  const forceRefreshLocation = /当前位置|现在的位置|我现在在|我的位置/.test(messageText)
   
-  // 检测是否明确包含两个地址（出发地和目的地）
-  // 匹配模式：从...到、从...去、从...走、从...往、从...前往
-  const explicitRoutePattern = /从[\s\S]{1,50}?(?:到|去|走|往|前往)[\s\S]{1,50}/
-  const hasExplicitRoute = explicitRoutePattern.test(messageText)
+  // 通过后端 AI 智能判断是否需要位置信息
+  const needLocationForQuery = await isLocationRelatedQuery(messageText)
   
-  // 检测是否只提到了目的地（没有明确提到出发地）
-  // 只有同时满足以下条件才触发定位：
-  // 1. 包含路线规划关键词
-  // 2. 没有明确的"从A到B"模式
-  // 3. 没有明确提到"出发"、"起点"等词
-  const hasDestinationOnly = hasRouteIntent && !hasExplicitRoute && !messageText.match(/出发|起点|起始|起点位置/)
-  
-  // 只有当明确需要当前位置时才触发定位
-  // 情况1：询问位置相关的问题（我在哪里等）- 这些不包含路线规划关键词
-  // 情况2：路线规划问题，但只提到目的地，没有提到出发地（如"去东方明珠怎么走"）
-  const shouldGetLocation = isLocationRelatedQuery(messageText) || hasDestinationOnly
-  
-  console.log('定位检测:', {
-    messageText,
-    hasRouteIntent,
-    hasExplicitRoute,
-    hasDestinationOnly,
-    shouldGetLocation
+  console.log('位置策略:', {
+    message: messageText,
+    needLocation: needLocationForQuery,
+    hasSessionCache: !!sessionLocation.value,
+    forceRefresh: forceRefreshLocation
   })
   
-  if (messageText && shouldGetLocation) {
-    let loadingInstance = null
-    try {
-      // 显示定位加载提示
-      loadingInstance = ElLoading.service({
-        lock: false,
-        text: '正在获取您的位置信息...',
-        background: 'rgba(0, 0, 0, 0.7)'
-      })
-      
-      // 如果是路线规划问题，只需要经纬度，不需要详细地址
-      const skipAddress = hasDestinationOnly
-      
-      // 执行高精度定位（路线规划时跳过地址获取）
-      const locationResult = await getCurrentLocationWithAddress({}, skipAddress)
-      
-      // 关闭加载提示
-      if (loadingInstance) {
-        loadingInstance.close()
-        loadingInstance = null
-      }
-      
-      if (locationResult && locationResult.success) {
-        locationInfo = {
-          longitude: locationResult.longitude,
-          latitude: locationResult.latitude,
-          address: locationResult.address,
-          addressComponent: locationResult.addressComponent
+  if (messageText && needLocationForQuery) {
+    // 优先使用 store 中的全局缓存
+    if (locationStore.currentLocation && !forceRefreshLocation) {
+      locationInfo = locationStore.currentLocation
+      console.log('使用 store 缓存的位置信息:', locationInfo)
+    } else if (sessionLocation.value && !forceRefreshLocation) {
+      // 其次使用 session 级别缓存（兼容性）
+      locationInfo = sessionLocation.value
+      console.log('使用 session 缓存的位置信息:', locationInfo)
+    } else {
+      // 需要重新定位
+      let loadingInstance = null
+      try {
+        // 显示定位加载提示
+        loadingInstance = ElLoading.service({
+          lock: false,
+          text: forceRefreshLocation ? '正在刷新您的位置...' : '正在获取您的位置信息...',
+          background: 'rgba(0, 0, 0, 0.7)'
+        })
+        
+        // 使用 store 的 fetchLocation（带缓存管理）
+        locationInfo = await locationStore.fetchLocation(forceRefreshLocation)
+        
+        // 关闭加载提示
+        if (loadingInstance) {
+          loadingInstance.close()
+          loadingInstance = null
         }
         
-        // 构建坐标字符串
-        const coordStr = `${locationResult.longitude},${locationResult.latitude}`
-        
-        if (hasDestinationOnly) {
-          // 如果是路线规划问题，坐标信息将通过location参数传递，不放在消息内容中
-          // enhancedMessageText 保持为原始消息，坐标信息存储在 locationInfo 中
-          enhancedMessageText = messageText
-        } else {
-          // 将位置信息附加到消息中，供AI使用
-          const addressStr = locationResult.address || 
-            `${locationResult.addressComponent?.province || ''}${locationResult.addressComponent?.city || ''}${locationResult.addressComponent?.district || ''}${locationResult.addressComponent?.street || ''}`
-          enhancedMessageText = `${messageText}\n\n[我的当前位置信息：${addressStr}（经度：${locationResult.longitude}，纬度：${locationResult.latitude}）]`
+        if (locationInfo) {
+          // 同步到 session 级别缓存
+          sessionLocation.value = locationInfo
+          ElMessage.success(forceRefreshLocation ? '位置信息已刷新' : '位置信息获取成功')
+        }
+      } catch (error) {
+        // 确保关闭加载提示
+        if (loadingInstance) {
+          loadingInstance.close()
         }
         
-        ElMessage.success('位置信息获取成功')
-      }
-    } catch (error) {
-      // 确保关闭加载提示
-      if (loadingInstance) {
-        loadingInstance.close()
-      }
-      
-      console.error('定位失败:', error)
-      
-      // 提供详细的错误提示
-      let errorMsg = '定位失败'
-      let showDetailedGuide = false
-      
-      if (error.message) {
-        if (error.message.includes('定位权限') || error.message.includes('PERMISSION_DENIED')) {
-          errorMsg = '定位失败：请允许浏览器访问您的位置信息'
-          showDetailedGuide = true
-        } else if (error.message.includes('超时') || error.message.includes('TIMEOUT')) {
-          errorMsg = '定位超时：请检查网络连接或稍后重试'
-        } else if (error.message.includes('不可用') || error.message.includes('UNAVAILABLE')) {
-          errorMsg = '定位服务不可用：您的设备可能不支持定位功能'
-        } else {
-          errorMsg = `定位失败：${error.message}`
+        console.error('定位失败:', error)
+        
+        // 提供详细的错误提示
+        let errorMsg = '定位失败'
+        let showDetailedGuide = false
+        
+        if (error.message) {
+          if (error.message.includes('定位权限') || error.message.includes('PERMISSION_DENIED')) {
+            errorMsg = '定位失败：请允许浏览器访问您的位置信息'
+            showDetailedGuide = true
+          } else if (error.message.includes('超时') || error.message.includes('TIMEOUT')) {
+            errorMsg = '定位超时：请检查网络连接或稍后重试'
+          } else if (error.message.includes('不可用') || error.message.includes('UNAVAILABLE')) {
+            errorMsg = '定位服务不可用：您的设备可能不支持定位功能'
+          } else {
+            errorMsg = `定位失败：${error.message}`
+          }
         }
+        
+        // 显示错误提示
+        ElMessage.warning(errorMsg)
+        
+        // 如果是权限问题，显示详细设置指南
+        if (showDetailedGuide) {
+          setTimeout(() => {
+            ElMessageBox.alert(
+              'Chrome浏览器定位权限设置方法：\n\n' +
+              '1. 点击地址栏左侧的锁图标（或信息图标）\n' +
+              '2. 选择"网站设置"或"权限"\n' +
+              '3. 找到"位置"选项，设置为"允许"\n' +
+              '4. 刷新页面后重试\n\n' +
+              '或者：\n' +
+              '1. 点击浏览器右上角三个点菜单\n' +
+              '2. 选择"设置" > "隐私和安全" > "网站设置"\n' +
+              '3. 找到"位置"权限，设置为"允许"\n' +
+              '4. 刷新页面后重试',
+              '定位权限设置指南',
+              {
+                confirmButtonText: '知道了',
+                type: 'info'
+              }
+            )
+          }, 500)
+        }
+        
+        // 定位失败不影响消息发送，继续正常流程
       }
-      
-      // 显示错误提示
-      ElMessage.warning(errorMsg)
-      
-      // 如果是权限问题，显示详细设置指南
-      if (showDetailedGuide) {
-        setTimeout(() => {
-          ElMessageBox.alert(
-            'Chrome浏览器定位权限设置方法：\n\n' +
-            '1. 点击地址栏左侧的锁图标（或信息图标）\n' +
-            '2. 选择"网站设置"或"权限"\n' +
-            '3. 找到"位置"选项，设置为"允许"\n' +
-            '4. 刷新页面后重试\n\n' +
-            '或者：\n' +
-            '1. 点击浏览器右上角三个点菜单\n' +
-            '2. 选择"设置" > "隐私和安全" > "网站设置"\n' +
-            '3. 找到"位置"权限，设置为"允许"\n' +
-            '4. 刷新页面后重试',
-            '定位权限设置指南',
-            {
-              confirmButtonText: '知道了',
-              type: 'info'
-            }
-          )
-        }, 500)
-      }
-      
-      // 定位失败不影响消息发送，继续正常流程
     }
   }
 
@@ -420,143 +401,128 @@ const handleSend = async (messageText, useKnowledgeSearch = false, useWebSearch 
     messages.value.push(aiMessage)
     const messageIndex = messages.value.length - 1
     
+    // 流式渲染控制变量
+    let pendingContent = ''           // 待刷新的内容缓冲区
+    let lastRefreshTime = Date.now()  // 上次刷新时间
+    let refreshTimer = null           // 刷新定时器
+    
+    // 强制刷新函数：创建新对象触发 Markdown 渲染
+    const forceRefresh = () => {
+      if (pendingContent) {
+        const currentMessage = messages.value[messageIndex]
+        messages.value[messageIndex] = {
+          ...currentMessage,
+          content: currentMessage.content + pendingContent
+        }
+        pendingContent = ''
+        lastRefreshTime = Date.now()
+      }
+    }
+    
     try {
-      console.log('开始发送消息:', enhancedMessageText, '图片数量:', imageUrls.length, '知识库搜索:', useKnowledgeSearch || isKnowledgeSearch.value, '全网搜索:', useWebSearch || isWebSearch.value)
       // 若没有会话ID，则自动创建一个
       if (!currentSessionId.value) {
         createNewSession()
       }
       
-      // 根据搜索状态调用不同的接口
+      // 统一使用 streamChat，通过参数控制搜索类型
       const shouldUseKnowledgeSearch = useKnowledgeSearch || isKnowledgeSearch.value
       const shouldUseWebSearch = useWebSearch || isWebSearch.value
 
-      if (shouldUseKnowledgeSearch) {
-        chatService.streamRagChat(enhancedMessageText, imageUrls,
-          (data) => {
-            // 处理流式数据
-            if (data && data.content && data.content.trim() !== '') {
-              messages.value[messageIndex].content += data.content
+      chatService.streamChat({
+        message: enhancedMessageText,
+        sessionId: currentSessionId.value,
+        images: imageUrls,
+        enableRagSearch: shouldUseKnowledgeSearch,
+        enableWebSearch: shouldUseWebSearch,
+        deepThinking: isDeepThinking.value,
+        location: locationInfo,
+        onMessage: (data) => {
+          // 处理流式数据
+          if (data && data.content) {
+            // 累加到缓冲区
+            pendingContent += data.content
+            
+            // 清除之前的定时器
+            if (refreshTimer) {
+              clearTimeout(refreshTimer)
+              refreshTimer = null
+            }
+            
+            // 策略1：累积内容超过 80 字符，立即刷新
+            // 策略2：否则设置 150ms 延迟刷新（debounce）
+            const CHAR_THRESHOLD = 80    // 字符阈值
+            const DEBOUNCE_DELAY = 150   // 延迟时间（毫秒）
+            
+            if (pendingContent.length >= CHAR_THRESHOLD) {
+              // 超过阈值，立即刷新
+              forceRefresh()
               scrollToBottom()
+            } else {
+              // 未超过阈值，设置延迟刷新
+              refreshTimer = setTimeout(() => {
+                forceRefresh()
+                scrollToBottom()
+              }, DEBOUNCE_DELAY)
             }
-          },
-          (error) => {
-            console.error('知识库搜索错误:', error)
-            
-            // 根据错误类型提供不同的提示
-            let errorMessage = '知识库搜索失败，请重试'
-            if (error.message) {
-              if (error.message.includes('认证失败') || error.message.includes('401')) {
-                errorMessage = '登录已过期，请重新登录'
-                // 自动跳转到登录页
-                setTimeout(() => {
-                  userStore.logout()
-                  router.push('/login')
-                }, 2000)
-              } else if (error.message.includes('权限不足') || error.message.includes('403')) {
-                errorMessage = '权限不足，请联系管理员'
-              } else if (error.message.includes('超时')) {
-                errorMessage = '知识库搜索超时，请重试'
-              } else if (error.message.includes('连接被中断')) {
-                errorMessage = '连接中断，请重试'
-              } else {
-                errorMessage = `知识库搜索失败: ${error.message}`
-              }
+          }
+        },
+        onError: (error) => {
+          // 清理定时器
+          if (refreshTimer) {
+            clearTimeout(refreshTimer)
+            refreshTimer = null
+          }
+          
+          // 刷新已接收的内容
+          forceRefresh()
+          
+          console.error('聊天错误:', error)
+          
+          // 根据错误类型提供不同的提示
+          let errorMessage = shouldUseKnowledgeSearch ? '知识库搜索失败，请重试' : '发送消息失败，请重试'
+          if (error.message) {
+            if (error.message.includes('认证失败') || error.message.includes('401')) {
+              errorMessage = '登录已过期，请重新登录'
+              setTimeout(() => {
+                userStore.logout()
+                router.push('/login')
+              }, 2000)
+            } else if (error.message.includes('权限不足') || error.message.includes('403')) {
+              errorMessage = '权限不足，请联系管理员'
+            } else if (error.message.includes('超时')) {
+              errorMessage = shouldUseKnowledgeSearch ? '知识库搜索超时，请重试' : '请求超时，请检查网络连接'
+            } else if (error.message.includes('连接被中断')) {
+              errorMessage = '连接中断，请重试'
+            } else {
+              errorMessage = `${shouldUseKnowledgeSearch ? '知识库搜索' : '发送消息'}失败: ${error.message}`
             }
-            
-            ElMessage.error(errorMessage)
-            isLoading.value = false
-          },
-          async () => {
-            // 完成
-            isLoading.value = false
-            
-            // 强制刷新消息以确保Markdown正确渲染
-            await nextTick()
-            const lastMessage = messages.value[messageIndex]
-            if (lastMessage) {
-              // 创建新对象以触发响应式更新，确保Markdown完全渲染
-              const content = lastMessage.content
-              messages.value[messageIndex] = { ...lastMessage, content }
-            }
-            
-            // 再次等待DOM更新
-            await nextTick()
-            scrollToBottom()
-            
-            // 重新加载会话列表，以显示新创建的会话
-            await loadSessions()
-            console.log('流式响应完成，已刷新会话列表和Markdown渲染')
-          },
-          currentSessionId.value,
-          shouldUseWebSearch,
-          isDeepThinking.value,
-          locationInfo // 传递location信息
-        )
-      } else {
-        // 普通聊天或全网搜索：根据shouldUseWebSearch参数传递
-        chatService.streamChat(enhancedMessageText, imageUrls,
-          (data) => {
-            // 处理流式数据
-            if (data && data.content && data.content.trim() !== '') {
-              messages.value[messageIndex].content += data.content
-              scrollToBottom()
-            }
-          },
-          (error) => {
-            console.error('聊天错误:', error)
-            
-            // 根据错误类型提供不同的提示
-            let errorMessage = '发送消息失败，请重试'
-            if (error.message) {
-              if (error.message.includes('认证失败') || error.message.includes('401')) {
-                errorMessage = '登录已过期，请重新登录'
-                // 自动跳转到登录页
-                setTimeout(() => {
-                  userStore.logout()
-                  router.push('/login')
-                }, 2000)
-              } else if (error.message.includes('权限不足') || error.message.includes('403')) {
-                errorMessage = '权限不足，请联系管理员'
-              } else if (error.message.includes('超时')) {
-                errorMessage = '请求超时，请检查网络连接'
-              } else if (error.message.includes('连接被中断')) {
-                errorMessage = '连接中断，请重试'
-              } else {
-                errorMessage = `发送消息失败: ${error.message}`
-              }
-            }
-            
-            ElMessage.error(errorMessage)
-            isLoading.value = false
-          },
-          async () => {
-            // 完成
-            isLoading.value = false
-            
-            // 强制刷新消息以确保Markdown正确渲染
-            await nextTick()
-            const lastMessage = messages.value[messageIndex]
-            if (lastMessage) {
-              // 创建新对象以触发响应式更新，确保Markdown完全渲染
-              const content = lastMessage.content
-              messages.value[messageIndex] = { ...lastMessage, content }
-            }
-            
-            // 再次等待DOM更新
-            await nextTick()
-            scrollToBottom()
-            
-            // 重新加载会话列表，以显示新创建的会话
-            await loadSessions()
-            console.log('流式响应完成，已刷新会话列表和Markdown渲染')
-          },
-          currentSessionId.value,
-          shouldUseWebSearch, // 传递isWithEnableSearch参数
-          isDeepThinking.value, // 传递isDeepThinking参数
-          locationInfo // 传递location信息
-        )
-      }
+          }
+          
+          ElMessage.error(errorMessage)
+          isLoading.value = false
+        },
+        onComplete: async () => {
+          // 清理定时器
+          if (refreshTimer) {
+            clearTimeout(refreshTimer)
+            refreshTimer = null
+          }
+          
+          // 强制刷新剩余内容
+          forceRefresh()
+          
+          // 完成
+          isLoading.value = false
+          
+          // 等待 DOM 更新后滚动到底部
+          await nextTick()
+          scrollToBottom()
+          
+          // 重新加载会话列表，以显示新创建的会话
+          await loadSessions()
+        }
+      })
     } catch (error) {
       console.error('聊天错误:', error)
       ElMessage.error('发送消息失败，请重试')
@@ -672,13 +638,31 @@ const loadSessions = async () => {
 }
 
 // 新增会话
-const createNewSession = () => {
+const createNewSession = async () => {
   try {
     const newId = (crypto && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
     currentSessionId.value = newId
     // 新会话开始时清空当前对话内容
     messages.value = []
     historyLoaded.value = false
+    // 清空 session 级别缓存
+    sessionLocation.value = null
+    
+    // 新建会话时检查位置缓存是否过期
+    // 只有过期时才重新获取，否则复用缓存（避免频繁定位）
+    if (locationStore.isCacheExpired()) {
+      // 缓存过期，后台静默获取位置
+      try {
+        console.log('新建会话，位置缓存已过期，重新获取位置...')
+        await locationStore.fetchLocation(true) // 强制刷新
+        console.log('新建会话位置刷新成功')
+      } catch (error) {
+        console.warn('新建会话位置刷新失败，不影响正常使用:', error)
+        // 定位失败不影响会话创建
+      }
+    } else {
+      console.log('新建会话，使用缓存的位置信息（未过期）')
+    }
   } catch (e) {
     console.error(e)
   }
@@ -688,6 +672,8 @@ const createNewSession = () => {
 const selectSession = async (item) => {
   try {
     currentSessionId.value = item.sessionId
+    // 切换 session 时清空 session 级别缓存（但保留 store 全局缓存）
+    sessionLocation.value = null
     // 加载历史对话 - 使用新的GET接口
     const url = `/api/dialogue/history/${encodeURIComponent(item.sessionId)}`
     const res = await fetch(url, {

@@ -104,20 +104,20 @@ const handleSend = (message, isKnowledgeSearch, isWebSearch, imageList) => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 24px;
+  gap: var(--spacing-2xl);
 }
 
 .hero-title {
-  color: #e6e6e6;
+  color: var(--text-primary);
   font-size: 32px;
   font-weight: 700;
 }
 
 .input-card {
-  background: #2a2a2a;
-  border-radius: 18px;
-  padding: 16px;
-  box-shadow: 0 6px 24px rgba(0,0,0,0.25);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-lg);
+  box-shadow: var(--shadow-lg);
 }
 
 .input-card--hero { 
@@ -130,18 +130,18 @@ const handleSend = (message, isKnowledgeSearch, isWebSearch, imageList) => {
 }
 
 .chat-input {
-  background: #1f1f1f;
-  padding: 20px;
-  border-top: 1px solid #2a2a2a;
+  background: var(--bg-primary);
+  padding: var(--spacing-xl);
+  border-top: 1px solid var(--border-primary);
 }
 
 .input-tips {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 8px;
+  margin-top: var(--spacing-sm);
   font-size: 12px;
-  color: #999;
+  color: var(--text-muted);
 }
 
 .composing-indicator {

@@ -2,127 +2,109 @@
  * 定位服务 - 使用浏览器原生定位API，更安全且不需要前端API Key
  */
 
+import request from './request'
+
+let amapLoader = null // 缓存 AMap 加载器
+
 /**
- * 使用浏览器原生Geolocation API进行定位
- * 无需高德地图API Key，更安全
+ * 加载高德地图 JS SDK
+ * 通过后端代理获取安全 Key，保证 API Key 不暴露在前端
+ * @returns {Promise} 返回 AMap 实例
+ */
+async function loadAMapSDK() {
+    if (amapLoader) {
+        return amapLoader
+    }
+
+    try {
+        // 从后端获取高德地图配置（包括安全 Key）
+        const config = await request.get('/location/amap-config')
+        const { key, securityJsCode } = config
+        // 设置安全密钥
+        if (securityJsCode) {
+            window._AMapSecurityConfig = {
+                securityJsCode
+            }
+        }
+
+        // 动态加载高德 JS SDK
+        amapLoader = new Promise((resolve, reject) => {
+            const script = document.createElement('script')
+            script.src = `https://webapi.amap.com/maps?v=2.0&key=${key}&plugin=AMap.Geolocation`
+            script.async = true
+            script.onload = () => resolve(window.AMap)
+            script.onerror = () => reject(new Error('高德地图 SDK 加载失败'))
+            document.head.appendChild(script)
+        })
+        return amapLoader
+    } catch (error) {
+        console.error('加载高德地图 SDK 失败:', error)
+        throw error
+    }
+}
+
+/**
+ * 使用高德地图进行高精度定位
  * @param {Object} options 定位选项
- * @returns {Promise} 返回定位结果 {longitude, latitude}
+ * @returns {Promise} 返回定位结果 {longitude, latitude, address}
  */
 export async function getCurrentLocation(options = {}) {
-    return new Promise((resolve, reject) => {
-        if (!navigator.geolocation) {
-            reject({
-                success: false,
-                message: '您的浏览器不支持定位功能',
-                errorCode: 'NOT_SUPPORTED'
+    try {
+        const AMap = await loadAMapSDK()
+        return new Promise((resolve, reject) => {
+            AMap.plugin('AMap.Geolocation', () => {
+                const geolocation = new AMap.Geolocation({
+                    enableHighAccuracy: true,  // 高精度定位
+                    timeout: 10000,            // 10秒超时
+                    needAddress: true,         // 需要详细地址
+                    extensions: 'all',         // 返回完整信息
+                    ...options
+                })
+
+                geolocation.getCurrentPosition((status, result) => {
+                    if (status === 'complete') {
+                        console.log('高德地图定位成功:', result)
+                        resolve({
+                            success: true,
+                            longitude: result.position.lng.toString(),
+                            latitude: result.position.lat.toString(),
+                            accuracy: result.accuracy,
+                            address: result.formattedAddress,
+                            addressComponent: result.addressComponent,
+                            timestamp: Date.now()
+                        })
+                    } else {
+                        console.error('高德地图定位失败:', result)
+                        reject({
+                            success: false,
+                            message: result.message || '定位失败',
+                            errorCode: result.info,
+                            error: result
+                        })
+                    }
+                })
             })
-            return
-        }
-
-        const defaultOptions = {
-            enableHighAccuracy: true,  // 高精度定位
-            timeout: 10000,            // 10秒超时
-            maximumAge: 0              // 不使用缓存
-        }
-
-        const geolocationOptions = { ...defaultOptions, ...options }
-
-        navigator.geolocation.getCurrentPosition(
-            (position) => {
-                console.log('浏览器定位成功:', position)
-                resolve({
-                    success: true,
-                    longitude: position.coords.longitude.toString(),
-                    latitude: position.coords.latitude.toString(),
-                    accuracy: position.coords.accuracy,
-                    altitude: position.coords.altitude,
-                    heading: position.coords.heading,
-                    speed: position.coords.speed,
-                    timestamp: position.timestamp
-                })
-            },
-            (error) => {
-                console.error('浏览器定位失败:', error)
-
-                let errorMessage = '定位失败'
-                let errorCode = 'UNKNOWN'
-
-                switch (error.code) {
-                    case error.PERMISSION_DENIED:
-                        errorMessage = '定位失败：用户拒绝了定位权限请求'
-                        errorCode = 'PERMISSION_DENIED'
-                        break
-                    case error.POSITION_UNAVAILABLE:
-                        errorMessage = '定位失败：位置信息不可用'
-                        errorCode = 'POSITION_UNAVAILABLE'
-                        break
-                    case error.TIMEOUT:
-                        errorMessage = '定位超时：请检查网络连接'
-                        errorCode = 'TIMEOUT'
-                        break
-                    default:
-                        errorMessage = '定位失败：未知错误'
-                        errorCode = 'UNKNOWN'
-                        break
-                }
-
-                reject({
-                    success: false,
-                    message: errorMessage,
-                    errorCode: errorCode,
-                    error: error
-                })
-            },
-            geolocationOptions
-        )
-    })
+        })
+    } catch (error) {
+        console.error('定位服务初始化失败:', error)
+        throw error
+    }
 }
 
 /**
- * 加载高德地图JS API（已废弃，不再使用）
- * @deprecated 使用浏览器原生定位API，不再需要高德地图JS API
- */
-async function loadAMapScript() {
-    throw new Error('已废弃：请使用浏览器原生定位API')
-}
-
-/**
- * 调用后端API获取详细地址信息
+ * 通过后端代理获取详细地址信息（逆地理编码）
  * @param {string} longitude 经度
  * @param {string} latitude 纬度
  * @returns {Promise} 返回详细地址信息
  */
 export async function getDetailedAddress(longitude, latitude) {
-    const token = localStorage.getItem('token')
-    if (!token) {
-        throw new Error('认证失败，请重新登录')
-    }
-
     try {
-        const url = `/api/location/coordinates?longitude=${encodeURIComponent(longitude)}&latitude=${encodeURIComponent(latitude)}`
-
-        const response = await fetch(url, {
-            method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            }
+        const response = await request.get('/location/coordinates', {
+            params: { longitude, latitude }
         })
-
-        if (!response.ok) {
-            const errorText = await response.text()
-            throw new Error(`获取详细地址失败: ${response.status} ${errorText}`)
-        }
-
-        const data = await response.json()
-
-        if (!data.success) {
-            throw new Error(data.message || '获取详细地址失败')
-        }
-
         return {
             success: true,
-            data: data.data
+            data: response
         }
     } catch (error) {
         console.error('获取详细地址错误:', error)
@@ -131,81 +113,38 @@ export async function getDetailedAddress(longitude, latitude) {
 }
 
 /**
- * 执行完整的高精度定位流程：定位 -> 获取详细地址
+ * 执行完整的高精度定位流程
+ * 高德 SDK 已自带地址信息，无需额外调用后端
  * @param {Object} options 定位选项
- * @param {boolean} skipAddress 是否跳过地址获取（仅返回经纬度），默认false
- * @returns {Promise} 返回完整的定位和地址信息（如果skipAddress为true，则只返回经纬度）
+ * @returns {Promise} 返回完整的定位和地址信息
  */
-export async function getCurrentLocationWithAddress(options = {}, skipAddress = false) {
+export async function getCurrentLocationWithAddress(options = {}) {
     try {
-        // 第一步：获取高精度定位
-        const locationResult = await getCurrentLocation(options)
-
-        if (!locationResult.success) {
-            throw new Error(locationResult.message || '定位失败')
-        }
-
-        // 如果只需要经纬度，直接返回
-        if (skipAddress) {
-            return {
-                success: true,
-                longitude: locationResult.longitude,
-                latitude: locationResult.latitude,
-                accuracy: locationResult.accuracy
-            }
-        }
-
-        // 第二步：调用后端获取详细地址
-        const addressResult = await getDetailedAddress(
-            locationResult.longitude,
-            locationResult.latitude
-        )
-
-        if (!addressResult.success) {
-            throw new Error(addressResult.message || '获取详细地址失败')
-        }
-
-        // 合并结果
-        return {
-            success: true,
-            longitude: locationResult.longitude,
-            latitude: locationResult.latitude,
-            accuracy: locationResult.accuracy,
-            address: addressResult.data.formattedAddress || locationResult.address,
-            addressComponent: addressResult.data.addressComponent || {},
-            rawLocationData: locationResult.rawData,
-            rawAddressData: addressResult.data
-        }
+        const result = await getCurrentLocation(options)
+        return result
     } catch (error) {
-        console.error('高精度定位流程失败:', error)
+        console.error('定位失败:', error)
         throw error
     }
 }
 
 /**
- * 检测消息是否包含地理位置相关的咨询
+ * 通过后端 AI 智能判断是否需要位置信息
+ * 替代前端关键词匹配，更准确、更智能
  * @param {string} message 用户消息
- * @returns {boolean} 是否包含地理位置相关咨询
+ * @returns {Promise<boolean>} 是否需要位置信息
  */
-export function isLocationRelatedQuery(message) {
+export async function isLocationRelatedQuery(message) {
     if (!message || typeof message !== 'string') {
         return false
     }
 
-    // 如果明确包含"从...到"、"从...去"等模式，说明是路线规划问题，不是位置查询
-    const explicitRoutePattern = /从[\s\S]{1,50}?(?:到|去|走|往|前往)[\s\S]{1,50}/
-    if (explicitRoutePattern.test(message)) {
-        return false
+    try {
+        // 调用后端 AI 判断接口
+        const result = await request.post('/location/check-location-need', { message })
+        return result.needLocation || false
+    } catch (error) {
+        console.error('判断位置需求失败，默认不需要:', error)
+        return false // 失败时默认不需要定位
     }
-
-    // 位置查询关键词（不包括路线规划相关的）
-    const locationKeywords = [
-        '位置', '定位', '地址', '在哪里', '我在哪', '当前位置', '当前地址',
-        '附近', '周边', '距离', '多远', '多近',
-        '我的位置', '当前位置', '定位我', '我在哪里', '我在什么地方'
-    ]
-
-    const lowerMessage = message.toLowerCase()
-    return locationKeywords.some(keyword => lowerMessage.includes(keyword.toLowerCase()))
 }
-
