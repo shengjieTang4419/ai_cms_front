@@ -1,14 +1,4 @@
-const ensureToken = () => {
-    const token = localStorage.getItem('token')
-    if (!token) {
-        throw new Error('认证失败，请重新登录')
-    }
-    return token
-}
-
-const buildAuthHeaders = (token) => ({
-    'Authorization': `Bearer ${token}`
-})
+import { getAuthToken, buildAuthHeaders } from '../utils/auth'
 
 const handleJsonResponse = async (response, errorPrefix) => {
     if (!response.ok) {
@@ -20,7 +10,7 @@ const handleJsonResponse = async (response, errorPrefix) => {
 
 export class ImageService {
     async uploadImageFile(file, userId = 1) {
-        const token = ensureToken()
+        const token = getAuthToken()
 
         try {
             const formData = new FormData()
@@ -49,7 +39,7 @@ export class ImageService {
     }
 
     async uploadImage(base64Data, contentType = 'image/png', userId = 1) {
-        const token = ensureToken()
+        const token = getAuthToken()
 
         try {
             const formData = new FormData()
@@ -75,7 +65,7 @@ export class ImageService {
     }
 
     async deleteImage(fileUrl) {
-        const token = ensureToken()
+        const token = getAuthToken()
 
         try {
             const url = `/api/images/delete?fileUrl=${encodeURIComponent(fileUrl)}`

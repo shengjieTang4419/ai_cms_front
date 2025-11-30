@@ -71,6 +71,8 @@
   --white-transparent-10: rgba(255, 255, 255, 0.1);
   --white-transparent-70: rgba(255, 255, 255, 0.7);
   --danger-transparent-10: rgba(255, 71, 87, 0.1);
+  --danger-shadow-70: rgba(255, 71, 87, 0.7);
+  --danger-shadow-0: rgba(255, 71, 87, 0);
   
   /* ============ Markdown/代码相关 ============ */
   --color-code: #ff6b6b;              /* 行内代码颜色 */

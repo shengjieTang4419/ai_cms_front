@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { getCurrentLocationWithAddress } from '../api/location'
+import { getCurrentLocationWithAddress } from '../services/geolocation'
 import { LOCATION_CONFIG } from '../config/constants'
 
 /**

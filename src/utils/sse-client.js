@@ -1,13 +1,8 @@
 /**
- * @deprecated 此文件已迁移到 utils/sse-client.js
- * 请更新导入路径：import { SseClient } from '../utils/sse-client'
- * 此文件将在未来版本中移除
+ * SSE 流式客户端 - 封装所有流式响应的底层细节
+ * 通用工具类，不依赖任何业务逻辑
  */
-export { SseClient } from '../utils/sse-client'
-
-// 以下为向后兼容保留，请使用上面的导出
-/* istanbul ignore next */
-class _SseClient {
+export class SseClient {
     constructor() {
         this.abortController = null
         this.heartbeatInterval = null

@@ -52,6 +52,7 @@
       </div>
       <div class="right-actions">
         <el-button class="pill pill-icon" round>📎</el-button>
+        <VoiceRecorder @text-recognized="handleTextRecognized" />
         <el-button 
           type="primary" 
           circle 
@@ -70,6 +71,7 @@
 <script setup>
 import { ref, watch } from 'vue'
 import ImageUploader from './ImageUploader.vue'
+import VoiceRecorder from './VoiceRecorder.vue'
 
 const props = defineProps({
   modelValue: {
@@ -165,6 +167,16 @@ const toggleWebSearch = () => {
   isWebSearch.value = !isWebSearch.value
   isKnowledgeSearch.value = false // 确保互斥
   emit('web-search-toggle', isWebSearch.value)
+}
+
+const handleTextRecognized = (text) => {
+  // 将识别的文本添加到输入框
+  if (inputValue.value) {
+    // 如果输入框已有内容，追加到末尾
+    inputValue.value += ' ' + text
+  } else {
+    inputValue.value = text
+  }
 }
 </script>
 
