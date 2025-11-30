@@ -46,10 +46,13 @@ const router = createRouter({
 // 路由守卫
 router.beforeEach((to, from, next) => {
     const userStore = useUserStore()
+    // 直接检查localStorage中的token，确保实时性
+    const token = localStorage.getItem('token')
+    const isAuthenticated = !!token
 
-    if (to.meta.requiresAuth && !userStore.isAuthenticated) {
+    if (to.meta.requiresAuth && !isAuthenticated) {
         next('/login')
-    } else if (to.meta.requiresGuest && userStore.isAuthenticated) {
+    } else if (to.meta.requiresGuest && isAuthenticated) {
         next('/chat')
     } else {
         next()
