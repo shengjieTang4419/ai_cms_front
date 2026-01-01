@@ -13,17 +13,30 @@
         @image-click="handleImageClick"
       />
       <!-- 显示文本内容 -->
-      <div v-if="message.messageType === 'RECOMMENDATIONS'" class="recommendations">
-        <span
-          v-for="(topic, idx) in (message.topics || [])"
-          :key="idx"
-          class="recommendation-chip"
-          @click="handleTopicClick(topic)"
-        >
-          {{ topic }}
-        </span>
+      <div v-if="message.role === 'ai' && hasThinking" class="thinking-block">
+        <button class="thinking-header" @click="thinkingExpanded = !thinkingExpanded">
+          <span class="thinking-title">已思考</span>
+          <span class="thinking-toggle">{{ thinkingExpanded ? '收起' : '展开' }}</span>
+        </button>
+        <div v-show="thinkingExpanded" class="thinking-panel">
+          <pre class="thinking-text">{{ message.thinking }}</pre>
+        </div>
       </div>
+
       <MessageRenderer v-if="message.content" :content="message.content" />
+      <div v-if="message.role === 'ai' && message.topics && message.topics.length > 0" class="recommendations">
+        <div class="recommendation-divider"></div>
+        <div class="recommendation-chips">
+          <span
+            v-for="(topic, idx) in message.topics"
+            :key="idx"
+            class="recommendation-chip"
+            @click="handleTopicClick(topic)"
+          >
+            {{ topic }}
+          </span>
+        </div>
+      </div>
       <div class="message-footer">
         <div v-if="message.isRagEnhanced" class="rag-badge">
           <el-tag size="small" type="success">RAG增强</el-tag>
@@ -46,7 +59,7 @@
 
 <script setup>
 import { User, Service } from '@element-plus/icons-vue'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import MessageRenderer from './MessageRenderer.vue'
 import MessageImages from './MessageImages.vue'
 import ImagePreviewModal from './ImagePreviewModal.vue'
@@ -64,6 +77,12 @@ const emit = defineEmits(['image-deleted', 'topic-click'])
 const showImageViewer = ref(false)
 const previewImageSrc = ref('')
 const previewImageData = ref(null)
+
+const thinkingExpanded = ref(false)
+
+const hasThinking = computed(() => {
+  return props.message && props.message.role === 'ai' && props.message.thinking && props.message.thinking.trim().length > 0
+})
 
 const formatTime = (timestamp) => {
   return new Date(timestamp).toLocaleTimeString('zh-CN', {
@@ -157,6 +176,52 @@ const handleImageDeleted = (imageData) => {
   border: 1px solid var(--border-secondary);
 }
 
+.thinking-block {
+  margin-bottom: 10px;
+}
+
+.thinking-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 12px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.thinking-title {
+  font-weight: 600;
+}
+
+.thinking-toggle {
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.thinking-panel {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-top: 8px;
+}
+
+.thinking-text {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.82);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
 .message-footer {
   display: flex;
   justify-content: space-between;
@@ -186,6 +251,16 @@ const handleImageDeleted = (imageData) => {
 }
 
 .recommendations {
+  margin-top: 10px;
+}
+
+.recommendation-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.12);
+  margin-bottom: 10px;
+}
+
+.recommendation-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;

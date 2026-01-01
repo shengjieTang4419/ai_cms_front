@@ -17,7 +17,7 @@
               :session="item"
               :is-active="item.sessionId === currentSessionId"
               @select="$emit('select-session', $event)"
-              @action="(command, session) => $emit('session-action', command, session)"
+              @action="handleSessionAction"
             />
           </div>
         </template>
@@ -28,6 +28,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import SessionItem from './SessionItem.vue'
 
 const props = defineProps({
@@ -45,10 +46,62 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['update:collapsed', 'new-session', 'select-session', 'session-action'])
+const emit = defineEmits(['update:collapsed', 'new-session', 'select-session', 'rename-session', 'delete-session'])
 
 const toggleCollapse = () => {
   emit('update:collapsed', !props.collapsed)
+}
+
+const handleSessionAction = async (command, session) => {
+  if (!session) return
+  if (command === 'rename') {
+    try {
+      const { value: newTitle } = await ElMessageBox.prompt('请输入新的会话名称', '重命名会话', {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        inputValue: session.title || '未命名会话',
+        inputValidator: (value) => {
+          if (!value || !value.trim()) {
+            return '会话名称不能为空'
+          }
+          return true
+        }
+      })
+      emit('rename-session', { sessionId: session.sessionId, title: newTitle.trim() })
+      ElMessage.success('重命名成功')
+    } catch (e) {
+      if (e !== 'cancel') {
+        console.error(e)
+        ElMessage.error('重命名失败')
+      }
+    }
+    return
+  }
+
+  if (command === 'share') {
+    try {
+      const shareUrl = `${window.location.origin}/chat?session=${session.sessionId}`
+      await navigator.clipboard.writeText(shareUrl)
+      ElMessage.success('分享链接已复制到剪贴板')
+    } catch (e) {
+      console.error(e)
+      ElMessage.error('分享失败')
+    }
+    return
+  }
+
+  if (command === 'delete') {
+    try {
+      await ElMessageBox.confirm('确定要删除这个会话吗？', '提示', {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      })
+    } catch (action) {
+      if (action === 'cancel') return
+    }
+    emit('delete-session', session.sessionId)
+  }
 }
 
 const groupedSessions = computed(() => {
