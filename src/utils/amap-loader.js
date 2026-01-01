@@ -19,7 +19,7 @@ export async function loadAMapSDK() {
 
   try {
     // 从后端获取高德地图配置（包括安全 Key）
-    const config = await request.get('/location/amap-config')
+    const config = await request.get('/aiChat/location/amap-config')
     const { key, securityJsCode } = config
 
     // 设置安全密钥

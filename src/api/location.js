@@ -15,7 +15,7 @@ export { getCurrentLocation, getCurrentLocationWithAddress } from '../services/g
  */
 export async function getDetailedAddress(longitude, latitude) {
     try {
-        const response = await request.get('/location/coordinates', {
+        const response = await request.get('/aiChat/location/coordinates', {
             params: { longitude, latitude }
         })
         return {
@@ -42,7 +42,7 @@ export async function isLocationRelatedQuery(message) {
 
     try {
         // 调用后端 AI 判断接口
-        const result = await request.post('/location/check-location-need', { message })
+        const result = await request.post('/aiChat/location/check-location-need', { message })
         return result.needLocation || false
     } catch (error) {
         console.error('判断位置需求失败，默认不需要:', error)

@@ -17,7 +17,7 @@ export class ImageService {
             formData.append('file', file)
             formData.append('userId', userId.toString())
 
-            const response = await fetch('/api/images/upload', {
+            const response = await fetch('/api/aiChat/images/upload', {
                 method: 'POST',
                 headers: buildAuthHeaders(token),
                 body: formData
@@ -47,7 +47,7 @@ export class ImageService {
             formData.append('contentType', contentType)
             formData.append('userId', userId.toString())
 
-            const response = await fetch('/api/images/upload/base64', {
+            const response = await fetch('/api/aiChat/images/upload/base64', {
                 method: 'POST',
                 headers: buildAuthHeaders(token),
                 body: formData
@@ -68,7 +68,7 @@ export class ImageService {
         const token = getAuthToken()
 
         try {
-            const url = `/api/images/delete?fileUrl=${encodeURIComponent(fileUrl)}`
+            const url = `/api/aiChat/images/delete?fileUrl=${encodeURIComponent(fileUrl)}`
             const response = await fetch(url, {
                 method: 'DELETE',
                 headers: {

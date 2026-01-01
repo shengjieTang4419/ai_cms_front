@@ -17,10 +17,10 @@ export class SseClient {
      * @param {Function} options.onError - 错误回调 (error) => void
      * @param {Function} options.onComplete - 完成回调 () => void
      * @param {Object} options.headers - 自定义请求头
-     * @param {number} options.timeout - 超时时间（毫秒），默认 120000
+     * @param {number} options.timeout - 超时时间（毫秒），默认 600000
      * @param {number} options.heartbeatInterval - 心跳检测间隔（毫秒），默认 10000
      */
-    async open(url, { onMessage, onError, onComplete, headers = {}, timeout = 120000, heartbeatInterval = 10000 } = {}) {
+    async open(url, { onMessage, onError, onComplete, headers = {}, timeout = 600000, heartbeatInterval = 10000 } = {}) {
         // 关闭之前的连接
         this.close()
 
@@ -69,11 +69,13 @@ export class SseClient {
         const reader = response.body.getReader()
         const decoder = new TextDecoder()
         let buffer = ''
-        let lastActivity = Date.now()
-        let hasReceivedData = false
+        const state = {
+            lastActivity: Date.now(),
+            hasReceivedData: false
+        }
 
         // 启动心跳检测
-        this._startHeartbeat(reader, lastActivity, hasReceivedData, onError, heartbeatInterval)
+        this._startHeartbeat(reader, state, onError, heartbeatInterval)
 
         try {
             while (true) {
@@ -87,8 +89,8 @@ export class SseClient {
                 }
 
                 // 更新活动时间
-                lastActivity = Date.now()
-                hasReceivedData = true
+                state.lastActivity = Date.now()
+                state.hasReceivedData = true
 
                 // 解码并处理数据
                 const chunk = decoder.decode(value, { stream: true })
@@ -142,13 +144,13 @@ export class SseClient {
      * 启动心跳检测
      * @private
      */
-    _startHeartbeat(reader, lastActivity, hasReceivedData, onError, interval) {
+    _startHeartbeat(reader, state, onError, interval) {
         this.heartbeatInterval = setInterval(() => {
             const now = Date.now()
-            const timeSinceLastActivity = now - lastActivity
+            const timeSinceLastActivity = now - state.lastActivity
 
             // 60秒无数据且已收到数据，认为连接异常
-            if (timeSinceLastActivity > 60000 && hasReceivedData) {
+            if (timeSinceLastActivity > 60000 && state.hasReceivedData) {
                 console.warn('SSE 长时间无数据，关闭连接')
                 reader.cancel()
                 this._cleanup()
@@ -177,12 +179,42 @@ export class SseClient {
         if (error.name === 'AbortError') {
             onError(new Error('请求超时，请检查网络连接'))
         } else if (error.message.includes('401')) {
-            onError(new Error('认证失败，请重新登录'))
+            // 检查是否是设备变化
+            if (error.message.includes('检测到设备变化') || error.message.includes('设备变化')) {
+                // 设备变化，跳转登录页面
+                this._handleDeviceChange()
+                onError(new Error('检测到设备变化，请重新登录'))
+            } else {
+                onError(new Error('认证失败，请重新登录'))
+            }
         } else if (error.message.includes('403')) {
             onError(new Error('权限不足，请联系管理员'))
         } else {
             onError(error)
         }
+    }
+
+    /**
+     * 处理设备变化
+     * @private
+     */
+    _handleDeviceChange() {
+        console.warn('SSE检测到设备变化，跳转登录页面')
+        
+        // 清除本地存储
+        localStorage.removeItem('access_token')
+        localStorage.removeItem('refresh_token')
+        localStorage.clear()
+        
+        // 显示提示信息
+        if (typeof window !== 'undefined' && window.ElMessage) {
+            window.ElMessage.warning('检测到设备变化，请重新登录')
+        }
+        
+        // 跳转到登录页面
+        setTimeout(() => {
+            window.location.href = '/login'
+        }, 1000)
     }
 
     /**

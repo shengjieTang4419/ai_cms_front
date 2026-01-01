@@ -8,7 +8,7 @@
  * @throws {Error} 认证失败
  */
 export function getAuthToken() {
-    const token = localStorage.getItem('token')
+    const token = localStorage.getItem('access_token')
     if (!token) {
         throw new Error('认证失败，请重新登录')
     }

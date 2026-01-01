@@ -13,6 +13,16 @@
         @image-click="handleImageClick"
       />
       <!-- 显示文本内容 -->
+      <div v-if="message.messageType === 'RECOMMENDATIONS'" class="recommendations">
+        <span
+          v-for="(topic, idx) in (message.topics || [])"
+          :key="idx"
+          class="recommendation-chip"
+          @click="handleTopicClick(topic)"
+        >
+          {{ topic }}
+        </span>
+      </div>
       <MessageRenderer v-if="message.content" :content="message.content" />
       <div class="message-footer">
         <div v-if="message.isRagEnhanced" class="rag-badge">
@@ -49,7 +59,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['image-deleted'])
+const emit = defineEmits(['image-deleted', 'topic-click'])
 
 const showImageViewer = ref(false)
 const previewImageSrc = ref('')
@@ -81,6 +91,11 @@ const closeImageViewer = () => {
   showImageViewer.value = false
   previewImageSrc.value = ''
   previewImageData.value = null
+}
+
+const handleTopicClick = (topic) => {
+  if (!topic) return
+  emit('topic-click', topic)
 }
 
 // 处理删除图片请求（传给 ImagePreviewModal）
@@ -168,5 +183,26 @@ const handleImageDeleted = (imageData) => {
   padding: 2px 6px;
   height: auto;
   line-height: 1.2;
+}
+
+.recommendations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.recommendation-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.recommendation-chip:hover {
+  background: rgba(255, 255, 255, 0.18);
 }
 </style>

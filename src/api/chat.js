@@ -8,6 +8,7 @@ class ChatRequestOptions {
   constructor({
     message,
     sessionId = null,
+    dialogueId = null,
     images = [],
     enableWebSearch = false,
     enableRagSearch = false,
@@ -19,6 +20,7 @@ class ChatRequestOptions {
   } = {}) {
     this.message = message
     this.sessionId = sessionId
+    this.dialogueId = dialogueId
     this.images = images
     this.enableWebSearch = enableWebSearch
     this.enableRagSearch = enableRagSearch
@@ -37,6 +39,7 @@ class ChatRequestOptions {
   buildUrl(endpoint = 'simple') {
     const encodedQuery = encodeURIComponent(this.message)
     const sessionParam = this.sessionId ? `&sessionId=${encodeURIComponent(this.sessionId)}` : ''
+    const dialogueParam = this.dialogueId ? `&dialogueId=${encodeURIComponent(this.dialogueId)}` : ''
     
     // 图片参数
     const imageParams = this.images.length > 0 
@@ -56,7 +59,7 @@ class ChatRequestOptions {
       ? `&longitude=${encodeURIComponent(this.location.longitude)}&latitude=${encodeURIComponent(this.location.latitude)}`
       : ''
 
-    return `/api/aiChat/${endpoint}/streamChat?query=${encodedQuery}${sessionParam}${imageParams}${searchParam}${thinkingParam}${locationParam}`
+    return `/api/aiChat/${endpoint}/streamChat?query=${encodedQuery}${sessionParam}${dialogueParam}${imageParams}${searchParam}${thinkingParam}${locationParam}`
   }
 
   /**
@@ -66,6 +69,9 @@ class ChatRequestOptions {
   validate() {
     if (!this.message) {
       throw new Error('消息内容不能为空')
+    }
+    if (!this.dialogueId) {
+      throw new Error('缺少对话ID')
     }
     if (!this.onMessage || typeof this.onMessage !== 'function') {
       throw new Error('必须提供 onMessage 回调函数')
@@ -85,7 +91,7 @@ export class ChatService {
     }
 
     /**
-     * 发起流式聊天（支持知识库搜索或普通聊天）
+     * 发起流式聊天（支持知识库搜索或普通聊天）∏
      * @param {Object} options - 聊天请求选项
      * @param {string} options.message - 消息内容
      * @param {string} options.sessionId - 会话 ID

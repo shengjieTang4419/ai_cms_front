@@ -1,21 +1,30 @@
 import request from './request'
 
 export const login = (credentials) => {
-    return request.post('/auth/login', credentials)
+    const userName = credentials?.userName || credentials?.username
+    return request.post('/auth/login', {
+        ...credentials,
+        userName,
+        username: userName
+    })
 }
 
 export const register = (userData) => {
-    return request.post('/auth/register', userData)
+    return request.post('/auth/register', {
+        userName: userData.userName,
+        password: userData.password,
+        email: userData.email
+    })
 }
 
 export const getUserInfo = () => {
-    return request.get('/auth/user')
+    return request.get('/auth/info')
 }
 
 export const submitUserProfile = (profileData) => {
-    return request.post('/user/profile', profileData)
+    return request.post('/membership/user/profile', profileData)
 }
 
 export const getUserProfile = () => {
-    return request.get('/user/profile')
+    return request.get('/membership/user/profile')
 }

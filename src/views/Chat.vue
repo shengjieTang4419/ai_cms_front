@@ -49,7 +49,7 @@
             <div v-if="item.type === 'divider'" class="message-divider">
               <span>{{ item.text }}</span>
             </div>
-            <ChatMessage v-else :message="item.data" @image-deleted="handleImageDeleted" />
+            <ChatMessage v-else :message="item.data" @image-deleted="handleImageDeleted" @topic-click="fillExample" />
           </template>
           
           <!-- 加载中状态 -->
@@ -118,6 +118,18 @@
           </div>
         </div>
 
+        <!-- 话题引导（对话完成后显示，点击自动带入输入框） -->
+        <div v-if="topicGuides.length > 0" class="topic-guides">
+          <span
+            v-for="(topic, idx) in topicGuides"
+            :key="idx"
+            class="topic-guide-tag"
+            @click="fillExample(topic)"
+          >
+            {{ topic }}
+          </span>
+        </div>
+
         <!-- 输入区域 -->
         <ChatInput 
           v-model="inputMessage"
@@ -141,8 +153,9 @@ import { User, ArrowDown, CircleClose } from '@element-plus/icons-vue'
 import { useUserStore } from '../stores/user'
 import { useLocationStore } from '../stores/location'
 import { chatService } from '../api/chat'
-import { getPersonalizedRecommendations } from '../api/recommendation'
-import { getCurrentLocationWithAddress, isLocationRelatedQuery } from '../api/location'
+import { getPersonalizedRecommendations, getUserInterests } from '../api/recommendation'
+import { isLocationRelatedQuery } from '../api/location'
+import { getUserSessions, getSessionHistory, deleteSession as deleteSessionApi } from '../api/dialogue'
 import ChatSidebar from '../components/ChatSidebar.vue'
 import ChatMessage from '../components/ChatMessage.vue'
 import ChatInput from '../components/ChatInput.vue'
@@ -172,6 +185,9 @@ const isDeepThinking = ref(false)
 const currentSessionId = ref('')
 const historyLoaded = ref(false)
 const images = ref([])
+
+// 对话完成后的话题引导（3个）
+const topicGuides = ref([])
 
 // 个性化推荐数据
 const recommendations = ref([])
@@ -212,6 +228,14 @@ const renderedMessages = computed(() => {
 // 填充示例文本
 const fillExample = (text) => {
   inputMessage.value = text
+}
+
+const createDialogueId = () => {
+  try {
+    return (crypto && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  } catch (e) {
+    return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  }
 }
 
 // 处理知识库搜索切换
@@ -265,6 +289,12 @@ const handleImageDeleted = (imageUrl) => {
 // 发送消息
 const handleSend = async (messageText, useKnowledgeSearch = false, useWebSearch = false, imageList = []) => {
   if ((!messageText && (!imageList || imageList.length === 0)) || isLoading.value) return
+
+  // 新一轮对话开始，清空上一次话题引导
+  topicGuides.value = []
+
+  // 每次发送生成新的 dialogueId，关联 USER/ASSISTANT/RECOMMENDATIONS
+  const dialogueId = createDialogueId()
 
   // imageList 包含 { preview: base64, fileUrl: url } 或直接的 URL 字符串（历史记录）
   // 对于新发送的消息，使用包含 preview 的对象；对于历史记录，只有 URL 字符串
@@ -388,6 +418,7 @@ const handleSend = async (messageText, useKnowledgeSearch = false, useWebSearch 
     role: 'user',
     content: messageText || '(图片消息)', // 只显示原始消息，不显示坐标信息
     timestamp: new Date(),
+    dialogueId,
     images: imageData, // 保存完整数据（包含 preview 和 fileUrl）
     locationInfo: locationInfo // 保存位置信息
   }
@@ -406,7 +437,8 @@ const handleSend = async (messageText, useKnowledgeSearch = false, useWebSearch 
     const aiMessage = {
       role: 'ai',
       content: '',
-      timestamp: new Date()
+      timestamp: new Date(),
+      dialogueId
     }
     messages.value.push(aiMessage)
     const messageIndex = messages.value.length - 1
@@ -420,9 +452,14 @@ const handleSend = async (messageText, useKnowledgeSearch = false, useWebSearch 
     const forceRefresh = () => {
       if (pendingContent) {
         const currentMessage = messages.value[messageIndex]
+        if (!currentMessage) {
+          pendingContent = ''
+          lastRefreshTime = Date.now()
+          return
+        }
         messages.value[messageIndex] = {
           ...currentMessage,
-          content: currentMessage.content + pendingContent
+          content: (currentMessage.content || '') + pendingContent
         }
         pendingContent = ''
         lastRefreshTime = Date.now()
@@ -442,6 +479,7 @@ const handleSend = async (messageText, useKnowledgeSearch = false, useWebSearch 
       chatService.streamChat({
         message: enhancedMessageText,
         sessionId: currentSessionId.value,
+        dialogueId,
         images: imageUrls,
         enableRagSearch: shouldUseKnowledgeSearch,
         enableWebSearch: shouldUseWebSearch,
@@ -492,7 +530,16 @@ const handleSend = async (messageText, useKnowledgeSearch = false, useWebSearch 
           // 根据错误类型提供不同的提示
           let errorMessage = shouldUseKnowledgeSearch ? '知识库搜索失败，请重试' : '发送消息失败，请重试'
           if (error.message) {
-            if (error.message.includes('认证失败') || error.message.includes('401')) {
+            if (error.message.includes('检测到设备变化') || error.message.includes('设备变化')) {
+              errorMessage = '检测到设备变化，请重新登录'
+              setTimeout(() => {
+                // 直接跳转，不需要调用logout（因为设备变化时后端已经清除了token）
+                localStorage.removeItem('access_token')
+                localStorage.removeItem('refresh_token')
+                localStorage.clear()
+                router.push('/login')
+              }, 2000)
+            } else if (error.message.includes('认证失败') || error.message.includes('401')) {
               errorMessage = '登录已过期，请重新登录'
               setTimeout(() => {
                 userStore.logout()
@@ -524,6 +571,18 @@ const handleSend = async (messageText, useKnowledgeSearch = false, useWebSearch 
           
           // 完成
           isLoading.value = false
+
+          // AI 对话完成后拉取话题引导（如果后端还没生成会返回空列表）
+          try {
+            const guides = await getUserInterests(currentSessionId.value, dialogueId)
+            if (Array.isArray(guides)) {
+              topicGuides.value = guides.slice(0, 3)
+            } else {
+              topicGuides.value = []
+            }
+          } catch (e) {
+            topicGuides.value = []
+          }
           
           // 等待 DOM 更新后滚动到底部
           await nextTick()
@@ -578,19 +637,30 @@ const handleLogout = async () => {
       cancelButtonText: '取消',
       type: 'warning'
     })
-    // 清除用户信息和token
-    userStore.logout()
-    // 强制清除localStorage
+  } catch (action) {
+    // 用户点击取消，直接返回
+    if (action === 'cancel') return
+  }
+
+  try {
+    // 调用user store的logout方法（会调用后端接口并清除本地数据）
+    await userStore.logout()
+    
+    // 强制清除localStorage（确保完全清理）
     localStorage.removeItem('token')
+    localStorage.removeItem('access_token')
+    localStorage.removeItem('refresh_token')
     localStorage.clear()
+    
     // 显示成功提示
     ElMessage.success('已退出登录')
     // 延迟跳转，确保状态已清除
     setTimeout(() => {
       router.replace('/login')
     }, 100)
-  } catch {
-    // 用户取消退出
+  } catch (error) {
+    console.error('退出登录失败:', error)
+    ElMessage.error('退出登录失败，请重试')
   }
 }
 
@@ -604,7 +674,8 @@ const handleClickOutside = (event) => {
 // 获取会话列表
 const loadSessions = async () => {
   try {
-    const token = localStorage.getItem('token')
+    const token = localStorage.getItem('access_token')
+    const deviceId = localStorage.getItem('device_id')
     const headers = {
       'Content-Type': 'application/json'
     }
@@ -613,15 +684,11 @@ const loadSessions = async () => {
       headers['Authorization'] = `Bearer ${token}`
     }
 
-    const res = await fetch('/api/chat/sessions/user', {
-      headers
-    })
-
-    if (!res.ok) {
-      throw new Error(`获取会话列表失败: ${res.status} ${res.statusText}`)
+    if (deviceId) {
+      headers['X-Device-ID'] = deviceId
     }
 
-    const data = await res.json()
+    const data = await getUserSessions(headers)
 
     // 验证响应数据
     if (!Array.isArray(data)) {
@@ -637,22 +704,15 @@ const loadSessions = async () => {
 
         // 如果没有标题，尝试获取第一条用户消息作为标题
         try {
-          const historyRes = await fetch(`/api/dialogue/history/${encodeURIComponent(session.sessionId)}`, {
-            headers,
-            method: 'GET'
-          })
+          const history = await getSessionHistory(session.sessionId, headers)
+          const firstUserMessage = Array.isArray(history)
+            ? history.find(msg => msg.messageType === 'USER')
+            : null
 
-          if (historyRes.ok) {
-            const history = await historyRes.json()
-            const firstUserMessage = Array.isArray(history)
-              ? history.find(msg => msg.messageType === 'USER')
-              : null
-
-            if (firstUserMessage && firstUserMessage.content) {
-              const title = firstUserMessage.content.substring(0, 20) +
-                (firstUserMessage.content.length > 20 ? '...' : '')
-              return { ...session, title }
-            }
+          if (firstUserMessage && firstUserMessage.content) {
+            const title = firstUserMessage.content.substring(0, 20) +
+              (firstUserMessage.content.length > 20 ? '...' : '')
+            return { ...session, title }
           }
         } catch (e) {
           console.warn(`无法获取会话 ${session.sessionId} 的标题:`, e)
@@ -708,54 +768,83 @@ const selectSession = async (item) => {
     currentSessionId.value = item.sessionId
     // 切换 session 时清空 session 级别缓存（但保留 store 全局缓存）
     sessionLocation.value = null
+    topicGuides.value = []
     // 加载历史对话 - 使用新的GET接口
-    const url = `/api/dialogue/history/${encodeURIComponent(item.sessionId)}`
-    const res = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
-      }
-    })
-
-    if (!res.ok) {
-      throw new Error(`获取历史对话失败: ${res.status} ${res.statusText}`)
+    const headers = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`,
+      'X-Device-ID': localStorage.getItem('device_id') || ''
     }
-
-    const records = await res.json()
+    const records = await getSessionHistory(item.sessionId, headers)
 
     // 验证响应数据
     if (!Array.isArray(records)) {
       throw new Error('历史对话数据格式错误')
     }
 
-    // 将数据转换为消息格式，按时间排序
-    const flat = records
-      .filter(r => r && r.messageType && r.content) // 过滤有效记录
-      .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)) // 按时间排序
-      .map(r => {
-        const timestamp = r.createdAt ? new Date(r.createdAt) : new Date()
+    const flattenChatMessage = (r) => {
+      if (!r || !r.messageType) return null
+      const timestamp = r.createdAt ? new Date(r.createdAt) : new Date()
 
-        const message = {
-          role: r.messageType === 'USER' ? 'user' : 'ai',
-          content: r.content || '',
+      if (r.messageType === 'RECOMMENDATIONS') {
+        let topics = []
+        try {
+          topics = JSON.parse(r.content || '[]')
+        } catch (e) {
+          topics = []
+        }
+        return {
+          role: 'ai',
           timestamp,
-          isRagEnhanced: r.isRagEnhanced || false,
-          messageId: r.id
+          dialogueId: r.dialogueId,
+          messageId: r.id,
+          messageType: 'RECOMMENDATIONS',
+          topics: Array.isArray(topics) ? topics : []
         }
+      }
 
-        // 如果是用户消息且有图片URL，恢复图片显示
-        // 注意：OCR结果不在这里，只恢复图片URL
-        if (message.role === 'user' && r.imageUrls && Array.isArray(r.imageUrls) && r.imageUrls.length > 0) {
-          // 将图片URL转换为前端需要的格式（字符串数组或对象数组）
-          message.images = r.imageUrls.map(url => ({
-            fileUrl: url,
-            preview: url // 历史记录中，preview也使用URL（因为没有base64数据）
-          }))
-        }
+      const message = {
+        role: r.messageType === 'USER' ? 'user' : 'ai',
+        content: r.content || '',
+        timestamp,
+        dialogueId: r.dialogueId,
+        isRagEnhanced: r.isRagEnhanced || false,
+        messageId: r.id,
+        messageType: r.messageType
+      }
 
-        return message
-      })
+      if (message.role === 'user' && r.imageUrls && Array.isArray(r.imageUrls) && r.imageUrls.length > 0) {
+        message.images = r.imageUrls.map(url => ({
+          fileUrl: url,
+          preview: url
+        }))
+      }
+
+      return message
+    }
+
+    // 兼容两种格式：
+    // 1) 旧：ChatMessage[]
+    // 2) 新：ConversationTurn[] { dialogueId, user, assistant, recommendations }
+    let flat = []
+    const isGroupedTurn = records.length > 0 && records[0] && ('user' in records[0] || 'assistant' in records[0] || 'recommendations' in records[0])
+
+    if (isGroupedTurn) {
+      flat = records.flatMap(turn => {
+        const items = []
+        const userMsg = flattenChatMessage(turn.user)
+        const assistantMsg = flattenChatMessage(turn.assistant)
+        const recMsg = flattenChatMessage(turn.recommendations)
+        if (userMsg) items.push(userMsg)
+        if (assistantMsg) items.push(assistantMsg)
+        if (recMsg) items.push(recMsg)
+        return items
+      }).filter(Boolean)
+    } else {
+      flat = records.map(flattenChatMessage).filter(Boolean)
+    }
+
+    flat = flat.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
 
     // 验证是否至少有一条消息
     if (flat.length === 0) {
@@ -808,11 +897,7 @@ const renameSession = async (item) => {
         return true
       }
     })
-    
-    // 这里可以调用重命名接口
-    // const url = `/api/dialogue/${encodeURIComponent(item.sessionId)}/rename`
-    // await fetch(url, { method: 'PUT', body: JSON.stringify({ title: newTitle }) })
-    
+        
     // 暂时只更新本地数据
     item.title = newTitle.trim()
     ElMessage.success('重命名成功')
@@ -848,9 +933,11 @@ const deleteSession = async (sessionId) => {
       type: 'warning'
     })
     
-    const url = `/api/dialogue/${encodeURIComponent(sessionId)}`
-    const res = await fetch(url, { method: 'DELETE' })
-    if (!res.ok) throw new Error('删除会话失败')
+    const headers = {
+      'Authorization': `Bearer ${localStorage.getItem('access_token') || ''}`,
+      'X-Device-ID': localStorage.getItem('device_id') || ''
+    }
+    await deleteSessionApi(sessionId, headers)
     
     // 从会话列表中移除
     sessions.value = sessions.value.filter(s => s.sessionId !== sessionId)
@@ -1083,6 +1170,31 @@ onUnmounted(() => {
   display: flex;
   justify-content: flex-start;
   padding: 12px 16px;
+}
+
+.topic-guides {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 18px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.topic-guide-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: #eaeaea;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+.topic-guide-tag:hover {
+  background: rgba(255, 255, 255, 0.16);
 }
 
 .typing-indicator {

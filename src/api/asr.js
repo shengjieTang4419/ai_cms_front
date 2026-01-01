@@ -26,7 +26,7 @@ export class AsrService {
       const formData = new FormData()
       formData.append('file', audioBlob, filename)
 
-      const response = await fetch('/api/asr/recognize', {
+      const response = await fetch('/api/aiChat/asr/recognize', {
         method: 'POST',
         headers: buildAuthHeaders(token),
         body: formData

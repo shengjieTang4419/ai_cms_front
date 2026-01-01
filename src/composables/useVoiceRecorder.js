@@ -182,9 +182,6 @@ export function useVoiceRecorder() {
    */
   onUnmounted(() => {
     cleanup()
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-      mediaRecorder.stop()
-    }
   })
 
   return {

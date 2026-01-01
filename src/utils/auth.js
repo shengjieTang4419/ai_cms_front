@@ -4,13 +4,15 @@
  * 可被所有 API 模块复用
  */
 
+ import DeviceInfoUtils from './deviceInfo'
+
 /**
  * 获取认证 Token，如果不存在则抛出错误
  * @returns {string} token
  * @throws {Error} 认证失败
  */
 export function getAuthToken() {
-  const token = localStorage.getItem('token')
+  const token = localStorage.getItem('access_token')
   if (!token) {
     throw new Error('认证失败，请重新登录')
   }
@@ -24,7 +26,8 @@ export function getAuthToken() {
  */
 export function buildAuthHeaders(token) {
   return {
-    'Authorization': `Bearer ${token}`
+    'Authorization': `Bearer ${token}`,
+    'X-Device-ID': DeviceInfoUtils.getDeviceId()
   }
 }
 
@@ -33,7 +36,7 @@ export function buildAuthHeaders(token) {
  * @returns {boolean}
  */
 export function isAuthenticated() {
-  return !!localStorage.getItem('token')
+  return !!localStorage.getItem('access_token')
 }
 
 /**

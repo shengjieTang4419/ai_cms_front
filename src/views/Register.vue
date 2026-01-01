@@ -13,9 +13,9 @@
         class="register-form"
         @submit.prevent="handleRegister"
       >
-        <el-form-item prop="username">
+        <el-form-item prop="userName">
           <el-input
-            v-model="registerForm.username"
+            v-model="registerForm.userName"
             placeholder="请输入用户名"
             size="large"
             prefix-icon="User"
@@ -91,7 +91,7 @@ const registerFormRef = ref()
 const loading = ref(false)
 
 const registerForm = reactive({
-  username: '',
+  userName: '',
   email: '',
   password: '',
   confirmPassword: ''
@@ -106,7 +106,7 @@ const validateConfirmPassword = (rule, value, callback) => {
 }
 
 const registerRules = {
-  username: [
+  userName: [
     { required: true, message: '请输入用户名', trigger: 'blur' },
     { min: 2, max: 20, message: '用户名长度在2到20个字符', trigger: 'blur' }
   ],
@@ -136,7 +136,7 @@ const handleRegister = async () => {
     
     // 注册成功后自动登录
     await userStore.loginUser({
-      username: userData.username,
+      userName: userData.userName,
       password: userData.password
     })
     

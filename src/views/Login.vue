@@ -93,9 +93,20 @@ const handleLogin = async () => {
     await loginFormRef.value.validate()
     loading.value = true
     
-    await userStore.loginUser(loginForm)
-    router.push('/chat')
+    console.log('开始登录...')
+    const response = await userStore.loginUser(loginForm)
+    console.log('登录响应:', response)
+    console.log('Token存储状态:', {
+      accessToken: localStorage.getItem('access_token'),
+      refreshToken: localStorage.getItem('refresh_token')
+    })
+    
+    // 跳转前检查路由守卫
+    console.log('准备跳转到 /chat')
+    await router.push('/chat')
+    console.log('跳转完成')
   } catch (error) {
+    console.error('登录失败:', error)
     ElMessage.error(error.response?.data?.message || '登录失败')
   } finally {
     loading.value = false
